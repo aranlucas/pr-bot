@@ -80,6 +80,11 @@ Set these in `.env.local` locally and in the Vercel environment when hosted:
 - `FREELLM_API_BASE_URL`: the model service's OpenAI-compatible `/v1` endpoint.
 - `FREELLM_MODEL`: model ID; defaults to `auto`.
 
+Model requests identify themselves as `pr-bot (Eve agent; OpenAI-compatible)`
+in the `User-Agent` header, followed by the SDK's diagnostics. FreeLLMAPI's
+Recent calls table shows `pr-bot`; its agent chart groups these requests under
+`openai-sdk`, since it has no dedicated PR Bot category.
+
 The channel stores the webhook's installation ID in Eve session state at the
 start of each turn. The extension's token provider uses that ID to mint a
 short-lived GitHub App installation token on each call. No PAT or Vercel Connect
