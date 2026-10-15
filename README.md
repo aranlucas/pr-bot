@@ -89,7 +89,8 @@ Draft PRs and PRs waiting on CI or approval still get a model review, while the
 merge gates hold them. Closed PRs, incomplete or binary diffs, empty diffs, over
 100 changed files, and patches exceeding 120,000 characters are held without an
 incomplete model review. A changed code-review input triggers a new review;
-repeated CI/review events reuse a cached decision for the same input.
+repeated CI/review events reuse a cached decision for the same input, model,
+review instructions, and output schema.
 
 Eve's built-in GitHub channel verifies and dispatches PR events. A supplemental
 adapter handles approval/status events, all check-associated PRs, and commit
@@ -111,7 +112,8 @@ shell, filesystem, browsing, and delegation tools are disabled.
 A merge additionally requires an open non-draft PR, allowed base branch, clean
 GitHub merge state, current approvals, no change requests, successful CI, and a
 model decision with no reported risks. The tool refetches and compares state,
-verifies lock ownership, and merges with the exact reviewed head SHA. Provider
+repeats that validation after posting its merge explanation, verifies lock
+ownership, and merges with the exact reviewed head SHA. Provider
 errors, malformed decisions, stale state, or Redis failure prevent merging.
 Model judgment can be wrong; it does not replace GitHub policy or human approvals.
 
@@ -121,7 +123,9 @@ for the same commit. If posting fails, the bot does not merge; if GitHub rejects
 the merge, the comment is updated. Dry runs do not post merge announcements.
 
 The tool writes structured `pr-review` logs and retains delivery results and
-review decisions in Redis for seven days. Eve's built-in channel can post framework failure messages to PR threads. The
+review decisions in Redis for seven days. Redelivering a completed merge returns
+its cached result; held and dry-run deliveries fetch current state and reevaluate
+the gates while reusing an unchanged model review. Eve's built-in channel can post framework failure messages to PR threads. The
 review tool's structured result remains in logs and Redis. Correct processing
 errors and redeliver the webhook; failures after acknowledgement are not
 reported through the original HTTP response.

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { blockers, reviewPullRequest, type Decision } from "@/review";
 import type { Config } from "@/config";
 import type { GitHub, Snapshot, Target } from "@/github";
 import type { Store } from "@/store";
+import { snapshot } from "./fixtures.js";
 
 const target: Target = {
   repository: "acme/app",
@@ -20,27 +22,6 @@ const policy: Config = {
   mergeMethod: "squash",
   dryRun: false,
 };
-
-const snapshot = (): Snapshot => ({
-  head: "head-sha",
-  base: "base-sha",
-  baseBranch: "main",
-  defaultBranch: "main",
-  state: "open",
-  draft: false,
-  merged: false,
-  mergeable: true,
-  mergeableState: "clean",
-  labels: ["agent:merge"],
-  title: "Fix edge case",
-  body: "",
-  author: "author",
-  checks: [{ name: "test", success: true }],
-  approvals: ["reviewer"],
-  changesRequested: false,
-  completeDiff: true,
-  files: [{ path: "src/app.ts", status: "modified", patch: "@@ -1 +1 @@\n-old\n+new" }],
-});
 
 const approval: Decision = {
   decision: "merge",
@@ -96,14 +77,15 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
     prsForCommit() {
       return Promise.resolve([42]);
     },
-    merge(actual, sha, method, reason) {
+    async merge(actual, sha, method, reason, beforeMerge) {
       assert.deepEqual(actual, target);
       assert.equal(sha, pr.head);
       assert.equal(method, "squash");
       assert.equal(reason, (options.decision ?? approval).reason);
+      await beforeMerge?.();
       merges++;
 
-      return Promise.resolve({ merged: true, sha, message: "Merged" });
+      return { merged: true, sha, message: "Merged" };
     },
   };
 
@@ -126,7 +108,7 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
 await test("merges eligible PR with the exact reviewed head SHA", async () => {
   const f = fixture();
   assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
-  assert.deepEqual(f.counts(), { snapshots: 2, merges: 1, assessments: 1 });
+  assert.deepEqual(f.counts(), { snapshots: 3, merges: 1, assessments: 1 });
 });
 
 await test("duplicate delivery returns cached result without repeating review or merge", async () => {
@@ -292,4 +274,79 @@ await test("different webhook deliveries reuse the same code review", async () =
   await reviewPullRequest(target, f.deps);
   await reviewPullRequest({ ...target, delivery: "delivery-2" }, f.deps);
   assert.equal(f.counts().assessments, 1);
+});
+
+await Promise.all(
+  Object.entries<Partial<Snapshot>>({
+    revokedApproval: { approvals: [] },
+    restartedCI: { checks: [{ name: "test", success: false }] },
+    movedBase: { base: "new-base" },
+    changedHead: { head: "new-head" },
+    draft: { draft: true },
+    changedDescription: { body: "New scope" },
+  }).map(async ([name, change]) => {
+    await test(`does not merge when ${name} changes while posting the explanation`, async () => {
+      const f = fixture();
+      let reads = 0;
+      f.deps.github.snapshot = () =>
+        Promise.resolve(reads++ >= 2 ? { ...snapshot(), ...change } : snapshot());
+      await assert.rejects(reviewPullRequest(target, f.deps), /PR changed/);
+      assert.equal(f.counts().merges, 0);
+      assert.equal(f.data.has("pr-bot:lock:acme/app:42"), false);
+    });
+  }),
+);
+
+await test("losing the lease during final validation prevents merging", async () => {
+  const f = fixture();
+  let reads = 0;
+  f.deps.github.snapshot = () => {
+    if (++reads === 3) {
+      f.data.set("pr-bot:lock:acme/app:42", "new-owner");
+    }
+
+    return Promise.resolve(snapshot());
+  };
+
+  await assert.rejects(reviewPullRequest(target, f.deps), /lock expired/);
+  assert.equal(f.counts().merges, 0);
+  assert.equal(f.data.get("pr-bot:lock:acme/app:42"), "new-owner");
+});
+
+await test("redelivery refreshes a temporary hold without repeating the model review", async () => {
+  const f = fixture({ ...snapshot(), mergeable: null }, { fresh: snapshot() });
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "held");
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
+  assert.equal(f.counts().assessments, 1);
+  assert.equal(f.counts().merges, 1);
+});
+
+await test("a dry-run delivery can be reevaluated after enabling merges", async () => {
+  const f = fixture(snapshot(), { dryRun: true });
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "dry-run");
+  f.deps.policy = { ...policy, dryRun: false };
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
+  assert.equal(f.counts().assessments, 1);
+});
+
+await test("unversioned cached decisions cannot authorize a merge", async () => {
+  const pr = snapshot();
+  const f = fixture(pr, { decision: { decision: "hold", reason: "Risk found", risks: ["Risk"] } });
+
+  const oldHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        head: pr.head,
+        base: pr.base,
+        title: pr.title,
+        body: pr.body,
+        files: pr.files,
+      }),
+    )
+    .digest("hex");
+
+  f.data.set(`pr-bot:review:acme/app:42:${oldHash}`, approval);
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "held");
+  assert.equal(f.counts().assessments, 1);
+  assert.equal(f.counts().merges, 0);
 });

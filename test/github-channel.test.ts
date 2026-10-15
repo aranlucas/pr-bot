@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
+import { z } from "zod";
+import type { SessionAuthContext } from "eve/context";
 import type { ChannelSendOptions, RouteHandlerArgs, Session } from "eve/channels";
+import type { ToolContext } from "eve/tools";
+import { createReviewTool } from "../agent/tools/review-pull-request.js";
+import { reviewPullRequest } from "@/review";
+import type { Store } from "@/store";
+import { snapshot } from "./fixtures.js";
 import type { GitHubChannelState } from "eve/channels/github";
 import { createReviewChannel } from "@/github-channel";
 
@@ -22,7 +29,7 @@ function unexpected(): never {
   throw new Error("Unexpected fixture operation");
 }
 
-function fixture() {
+function fixture(onDelivery?: (auth: SessionAuthContext | null | undefined) => Promise<void>) {
   process.env.GITHUB_REPOSITORIES = "acme/*";
   process.env.GITHUB_WEBHOOK_SECRET = "secret";
 
@@ -43,10 +50,12 @@ function fixture() {
 
   const args: RouteHandlerArgs<GitHubChannelState> = {
     from: (address) => ({
-      send: (_message, options) => {
-        deliveries.push({ address, options });
+      send: async (_message, options) => {
+        const delivery = { address, options };
+        deliveries.push(delivery);
+        await onDelivery?.(options.auth);
 
-        return Promise.resolve(session);
+        return session;
       },
       respond: unexpected,
       cancel: unexpected,
@@ -231,3 +240,112 @@ await test("native PR events require an installation and an allowed repository",
   );
   assert.equal(f.deliveries.length, 0);
 });
+
+await Promise.all(
+  [
+    { name: "eligible PR", draft: false, dryRun: false, outcome: "merged" },
+    { name: "draft PR", draft: true, dryRun: false, outcome: "held" },
+    { name: "dry run", draft: false, dryRun: true, outcome: "dry-run" },
+  ].map(async ({ name, draft, dryRun, outcome }) => {
+    await test(`signed webhook through the guarded tool: ${name}`, async () => {
+      const data = new Map<string, unknown>();
+
+      const store: Store = {
+        get<T>(key: string) {
+          // SAFETY: Values are read with the types used to write each key by reviewPullRequest.
+          return Promise.resolve((data.get(key) as T) ?? null);
+        },
+        set(key, value) {
+          data.set(key, value);
+
+          return Promise.resolve();
+        },
+        claim(key, token) {
+          if (data.has(key)) {
+            return Promise.resolve(false);
+          }
+
+          data.set(key, token);
+
+          return Promise.resolve(true);
+        },
+        release(key, token) {
+          if (data.get(key) === token) {
+            data.delete(key);
+          }
+
+          return Promise.resolve();
+        },
+      };
+
+      let merges = 0;
+      let reviews = 0;
+      const results: unknown[] = [];
+
+      const tool = createReviewTool((target) => {
+        assert.deepEqual(target, {
+          repository: "acme/app",
+          number: 7,
+          delivery: "delivery",
+          installationId: 99,
+        });
+
+        return reviewPullRequest(target, {
+          store,
+          policy: {
+            repositories: new Set(["acme/*"]),
+            baseBranch: "main",
+            requiredChecks: ["test"],
+            minApprovals: 1,
+            mergeMethod: "squash",
+            dryRun,
+          },
+          github: {
+            snapshot: () => Promise.resolve({ ...snapshot(), draft }),
+            prsForCommit: () => Promise.resolve([]),
+            async merge(actual, sha, method, reason, beforeMerge) {
+              assert.deepEqual(actual, target);
+              assert.equal(sha, "head-sha");
+              assert.equal(method, "squash");
+              assert.equal(reason, "Reviewed fixture change");
+              await beforeMerge?.();
+              merges++;
+
+              return { merged: true, message: "Merged fixture PR" };
+            },
+          },
+          assess: () => {
+            reviews++;
+
+            return Promise.resolve({
+              decision: "merge",
+              reason: "Reviewed fixture change",
+              risks: [],
+            });
+          },
+        });
+      });
+
+      const f = fixture(async (auth) => {
+        // SAFETY: Only the current caller is used by the authored tool executor.
+        const ctx = { session: { auth: { current: auth } } } as ToolContext;
+        results.push(await tool.execute({}, ctx));
+      });
+
+      const response = await f.dispatch(
+        "pull_request_review",
+        JSON.stringify({
+          ...envelope,
+          action: "submitted",
+          pull_request: { number: 7 },
+        }),
+      );
+
+      assert.equal(response.status, 202);
+      assert.equal(reviews, 1);
+      assert.equal(merges, outcome === "merged" ? 1 : 0);
+      assert.equal(results.length, 1);
+      assert.equal(z.object({ outcome: z.string() }).parse(results[0]).outcome, outcome);
+    });
+  }),
+);

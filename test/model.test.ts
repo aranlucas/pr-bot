@@ -68,3 +68,93 @@ await test("Railway reviews send structured output without OpenRouter routing op
 
   assert.deepEqual(result.output, { decision: "hold" });
 });
+
+interface FetchOptions {
+  readonly body?: string;
+}
+
+interface ProviderRequest {
+  readonly url: string;
+  readonly body: unknown;
+}
+
+await test("assessment sends the patch through the Railway route and validates structured output", async () => {
+  const { mock } = await import("node:test");
+  const { assess } = await import("@/review");
+  const { snapshot } = await import("./fixtures.js");
+  const previousKey = process.env.FREELLM_API_KEY;
+  process.env.FREELLM_API_KEY = "test-key";
+  const requests: ProviderRequest[] = [];
+
+  let content = JSON.stringify({
+    decision: "hold",
+    reason: "Regression risk",
+    risks: ["Missing test"],
+  });
+
+  const mockedFetch = mock.method(globalThis, "fetch", (input: string, init?: FetchOptions) => {
+    requests.push({ url: input, body: JSON.parse(z.string().parse(init?.body)) });
+
+    return Promise.resolve(
+      Response.json({
+        id: "fixture",
+        object: "chat.completion",
+        created: 1,
+        model: "auto",
+        choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      }),
+    );
+  });
+
+  try {
+    const pr = snapshot();
+    assert.deepEqual(await assess(pr), {
+      decision: "hold",
+      reason: "Regression risk",
+      risks: ["Missing test"],
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].url,
+      "https://freellmapi-production-1175.up.railway.app/v1/chat/completions",
+    );
+
+    const body = z
+      .object({
+        model: z.string(),
+        provider: z.unknown().optional(),
+        messages: z.array(z.object({ role: z.string(), content: z.string() })),
+        response_format: z.object({ type: z.string() }),
+      })
+      .parse(requests[0].body);
+
+    assert.equal(body.model, reviewModel.modelId);
+    assert.equal(body.provider, undefined);
+    assert.equal(body.response_format.type, "json_schema");
+    assert.ok(
+      body.messages.some(
+        (message) =>
+          message.role === "system" && message.content.includes("untrusted repository data"),
+      ),
+    );
+    assert.ok(
+      body.messages.some(
+        (message) =>
+          message.role === "user" &&
+          message.content === JSON.stringify({ title: pr.title, body: pr.body, files: pr.files }),
+      ),
+    );
+
+    content = JSON.stringify({ decision: "merge" });
+    await assert.rejects(assess(pr));
+  } finally {
+    mockedFetch.mock.restore();
+
+    if (previousKey === undefined) {
+      delete process.env.FREELLM_API_KEY;
+    } else {
+      process.env.FREELLM_API_KEY = previousKey;
+    }
+  }
+});
