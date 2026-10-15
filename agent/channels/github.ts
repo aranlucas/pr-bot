@@ -8,33 +8,24 @@ export default defineChannel({
   routes: [
     POST("/webhooks/github", async (request, { from }) => {
       // Bound actual streamed bytes, not only the caller-provided Content-Length.
-      const reader = request.body?.getReader();
+      const body = request.body;
 
-      if (!reader) {
+      if (!body) {
         return new Response("Missing body", { status: 400 });
       }
 
       const chunks: Uint8Array[] = [];
       let size = 0;
 
-      while (true) {
-        // oxlint-disable-next-line eslint/no-await-in-loop -- Bound each streamed chunk before reading more bytes.
-        const part = await reader.read();
-
-        if (part.done) {
-          break;
-        }
-
-        size += part.value.length;
+      // Returning early cancels the stream when the limit is exceeded.
+      for await (const chunk of body) {
+        size += chunk.length;
 
         if (size > 2_000_000) {
-          // oxlint-disable-next-line eslint/no-await-in-loop -- Cancel the same reader before rejecting an oversized request.
-          await reader.cancel();
-
           return new Response("Payload too large", { status: 413 });
         }
 
-        chunks.push(part.value);
+        chunks.push(chunk);
       }
 
       const raw = Buffer.concat(chunks);
