@@ -1,20 +1,17 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import { assert, test, vi } from "vitest";
 import { generateText, tool } from "ai";
 import { z } from "zod";
 import { reviewModel } from "@/model";
-import { commentSchema } from "@/review";
 
-interface TestRequest {
-  readonly body?: string;
-}
-
-await test("the main model can call post-comment without a separate structured review request", async (t) => {
-  const input = { reviewId: "a".repeat(64), body: "No concrete defects found." };
+test("the main model can call the native GitHub extension comment tool", async () => {
+  const input = { owner: "acme", repo: "app", pullNumber: 42, body: "No concrete defects found." };
   let requests = 0;
 
-  t.mock.method(globalThis, "fetch", (url: string, init?: TestRequest) => {
-    assert.equal(url, "https://freellmapi-production-1175.up.railway.app/v1/chat/completions");
+  vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
+    assert.strictEqual(
+      url,
+      "https://freellmapi-production-1175.up.railway.app/v1/chat/completions",
+    );
     requests++;
     const request = z.object({ body: z.string() }).parse(init);
 
@@ -26,9 +23,9 @@ await test("the main model can call post-comment without a separate structured r
       })
       .parse(JSON.parse(request.body));
 
-    assert.equal(body.model, "auto");
-    assert.equal(body.response_format, undefined);
-    assert.equal(body.tools[0].function.name, "post-comment");
+    assert.strictEqual(body.model, "auto");
+    assert.strictEqual(body.response_format, undefined);
+    assert.strictEqual(body.tools[0].function.name, "github__addPullRequestComment");
 
     return Promise.resolve(
       Response.json({
@@ -46,7 +43,10 @@ await test("the main model can call post-comment without a separate structured r
                 {
                   id: "comment-call",
                   type: "function",
-                  function: { name: "post-comment", arguments: JSON.stringify(input) },
+                  function: {
+                    name: "github__addPullRequestComment",
+                    arguments: JSON.stringify(input),
+                  },
                 },
               ],
             },
@@ -60,12 +60,22 @@ await test("the main model can call post-comment without a separate structured r
 
   const result = await generateText({
     model: reviewModel,
-    tools: { "post-comment": tool({ description: "Post the review", inputSchema: commentSchema }) },
+    tools: {
+      github__addPullRequestComment: tool({
+        description: "Post the review",
+        inputSchema: z.object({
+          owner: z.string(),
+          repo: z.string(),
+          pullNumber: z.number(),
+          body: z.string(),
+        }),
+      }),
+    },
     prompt: "Review this test change and post your findings",
     maxRetries: 0,
   });
 
-  assert.equal(requests, 1);
-  assert.equal(result.toolCalls[0].toolName, "post-comment");
+  assert.strictEqual(requests, 1);
+  assert.strictEqual(result.toolCalls[0].toolName, "github__addPullRequestComment");
   assert.deepEqual(result.toolCalls[0].input, input);
 });

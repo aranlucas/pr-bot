@@ -8,8 +8,14 @@
     "skipLibCheck": true,
     "types": ["node"],
     "paths": {
-      "@/*": ["./src/*.ts"]
+      "@/*": ["./agent/lib/*.ts"]
     }
   },
-  "include": ["agent/**/*.ts", "src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "oxfmt.config.ts"]
+  "include": [
+    "agent/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "oxfmt.config.ts",
+    "vitest.config.ts"
+  ]
 }

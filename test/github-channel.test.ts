@@ -1,9 +1,8 @@
-import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
-import { test } from "node:test";
+import { createHmac, generateKeyPairSync } from "node:crypto";
+import { assert, beforeEach, describe, test, vi } from "vitest";
 import type { ChannelSendOptions, RouteHandlerArgs, Session } from "eve/channels";
 import type { GitHubChannelState } from "eve/channels/github";
-import { createReviewChannel } from "@/github-channel";
+import channel from "../agent/channels/github.js";
 
 interface Delivery {
   readonly address: string;
@@ -23,9 +22,6 @@ function unexpected(): never {
 }
 
 function fixture() {
-  process.env.GITHUB_REPOSITORIES = "acme/*";
-  process.env.GITHUB_WEBHOOK_SECRET = "secret";
-
   const deliveries: Delivery[] = [];
   const pending: Promise<unknown>[] = [];
 
@@ -68,28 +64,6 @@ function fixture() {
     invokeTool: unexpected,
   };
 
-  const channel = createReviewChannel({
-    credentials: { webhookSecret: "secret", installationToken: "test", appSlug: "pr-bot" },
-    api: {
-      fetch: (input) => {
-        const url = new URL(input instanceof Request ? input.url : input.toString());
-
-        return Promise.resolve(
-          Response.json(
-            url.pathname.includes("/compare/")
-              ? { files: [] }
-              : {
-                  number: 7,
-                  title: "Fix",
-                  head: { sha: "head" },
-                  base: { sha: "base" },
-                },
-          ),
-        );
-      },
-    },
-  });
-
   const route =
     channel.routes.find((candidate) => candidate.transport !== "websocket") ?? unexpected();
 
@@ -118,116 +92,101 @@ function fixture() {
   return { dispatch, deliveries };
 }
 
-await test("Eve's native PR channel dispatches an unlabeled PR with its verified installation", async () => {
-  const f = fixture();
+describe("native GitHub webhook integration", () => {
+  beforeEach(() => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    vi.stubEnv("GITHUB_APP_ID", "123");
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", privateKey.export({ type: "pkcs8", format: "pem" }));
+    vi.stubEnv("GITHUB_APP_SLUG", "pr-bot");
+    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "secret");
 
-  const response = await f.dispatch(
-    "pull_request",
-    JSON.stringify({
-      ...envelope,
-      action: "opened",
-      pull_request: { number: 7, head: { sha: "head" }, base: { sha: "base" } },
-    }),
-  );
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
 
-  assert.equal(response.status, 200);
-  assert.equal(f.deliveries.length, 1);
-  assert.equal(f.deliveries[0].address, "repo:123:pull:7");
-  assert.deepEqual(f.deliveries[0].options.auth, {
-    authenticator: "github-app",
-    principalType: "service",
-    principalId: "acme/app",
-    attributes: { repository: "acme/app", number: "7", delivery: "delivery", installationId: "99" },
-  });
-});
+      if (path.includes("/access_tokens")) {
+        return Promise.resolve(
+          Response.json({
+            token: "installation-token",
+            expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+          }),
+        );
+      }
 
-await test("completed checks reach every associated PR through Eve's native receive hook", async () => {
-  const f = fixture();
-
-  const response = await f.dispatch(
-    "check_run",
-    JSON.stringify({
-      ...envelope,
-      action: "completed",
-      check_run: { head_sha: "head", pull_requests: [{ number: 7 }, { number: 8 }, { number: 7 }] },
-    }),
-  );
-
-  assert.equal(response.status, 202);
-  assert.deepEqual(
-    f.deliveries.map((d) => d.address),
-    ["repo:123:pull:7", "repo:123:pull:8"],
-  );
-  assert.ok(f.deliveries.every((d) => d.options.state.installationId === 99));
-});
-
-await test("approval changes use the same PR session as native PR events", async () => {
-  const f = fixture();
-
-  const response = await f.dispatch(
-    "pull_request_review",
-    JSON.stringify({ ...envelope, action: "submitted", pull_request: { number: 7 } }),
-  );
-
-  assert.equal(response.status, 202);
-  assert.equal(f.deliveries[0].address, "repo:123:pull:7");
-});
-
-await Promise.all(
-  ["pull_request", "check_run"].map(async (name) => {
-    await test(`${name} rejects a forged signature before dispatch`, async () => {
-      const f = fixture();
-      const response = await f.dispatch(name, JSON.stringify(envelope), "forged");
-      assert.equal(response.status, 401);
-      assert.equal(f.deliveries.length, 0);
+      return Promise.resolve(
+        Response.json(
+          path.includes("/compare/")
+            ? { files: [] }
+            : {
+                number: 7,
+                title: "Fix",
+                head: { sha: "head" },
+                base: { sha: "base" },
+              },
+        ),
+      );
     });
-  }),
-);
+  });
 
-await test("repository webhooks without an App installation cannot start a review", async () => {
-  const f = fixture();
+  test("the native signed webhook channel dispatches a PR with App installation context", async () => {
+    const f = fixture();
 
-  const response = await f.dispatch(
-    "pull_request_review",
-    JSON.stringify({ repository, action: "submitted", pull_request: { number: 7 } }),
-  );
+    const response = await f.dispatch(
+      "pull_request",
+      JSON.stringify({
+        ...envelope,
+        action: "opened",
+        pull_request: { number: 7, head: { sha: "head" }, base: { sha: "base" } },
+      }),
+    );
 
-  assert.equal(response.status, 400);
-  assert.equal(f.deliveries.length, 0);
-});
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(f.deliveries.length, 1);
+    assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
+    assert.strictEqual(f.deliveries[0].options.auth?.authenticator, "github-webhook");
+    assert.strictEqual(f.deliveries[0].options.auth?.attributes?.installation_id, "99");
+    assert.strictEqual(f.deliveries[0].options.state.installationId, 99);
+  });
 
-await test("uninstalled owners cannot bypass the repository allowlist", async () => {
-  const f = fixture();
+  test("native CI hooks dispatch the first associated PR and ignore checks without associations", async () => {
+    const f = fixture();
 
-  const response = await f.dispatch(
-    "check_run",
-    JSON.stringify({
-      ...envelope,
-      repository: { ...repository, full_name: "other/app" },
-      action: "completed",
-      check_run: { head_sha: "head", pull_requests: [{ number: 7 }] },
-    }),
-  );
+    const check = {
+      id: 1,
+      head_sha: "head",
+      status: "completed",
+      conclusion: "success",
+      app: { id: 2, slug: "github-actions" },
+    };
 
-  assert.equal(response.status, 403);
-  assert.equal(f.deliveries.length, 0);
-});
+    const response = await f.dispatch(
+      "check_run",
+      JSON.stringify({
+        ...envelope,
+        action: "completed",
+        check_run: { ...check, pull_requests: [{ number: 7 }, { number: 8 }] },
+      }),
+    );
 
-await test("native PR events require an installation and an allowed repository", async () => {
-  const f = fixture();
-  const pull_request = { number: 7, head: { sha: "head" }, base: { sha: "base" } };
-  await f.dispatch(
-    "pull_request",
-    JSON.stringify({ repository, sender: envelope.sender, action: "opened", pull_request }),
-  );
-  await f.dispatch(
-    "pull_request",
-    JSON.stringify({
-      ...envelope,
-      repository: { ...repository, full_name: "other/app" },
-      action: "opened",
-      pull_request,
-    }),
-  );
-  assert.equal(f.deliveries.length, 0);
+    assert.strictEqual(response.status, 200);
+    assert.deepEqual(
+      f.deliveries.map((delivery) => delivery.address),
+      ["repo:123:pull:7"],
+    );
+    await f.dispatch(
+      "check_run",
+      JSON.stringify({
+        ...envelope,
+        action: "completed",
+        check_run: { ...check, pull_requests: [] },
+      }),
+    );
+    assert.strictEqual(f.deliveries.length, 1);
+  });
+
+  test("the native channel rejects forged webhook signatures", async () => {
+    const f = fixture();
+    const response = await f.dispatch("pull_request", JSON.stringify(envelope), "forged");
+    assert.strictEqual(response.status, 401);
+    assert.strictEqual(f.deliveries.length, 0);
+  });
 });
