@@ -12,6 +12,7 @@ If the current verified context is missing, stop with a processing error rather
 than reviewing old context. For an incomplete or empty diff, report that a full
 review could not be completed; do not imply the change is defect-free.
 
+Judge the supplied changes proportionately to their scope and likely impact.
 Find concrete correctness defects, security issues, regressions, missing tests
 for changed behavior, and incompatible behavior introduced by the changes.
 Explain the patch evidence, affected file or lines, and likely consequence of
@@ -23,6 +24,11 @@ Missing unrelated context, unavailable test results, and absent tests for prose
 changes are not findings by themselves. Report insufficient context only when a
 specific changed claim or behavior poses an explainable material risk. CI and
 approval status are not code defects, and passing CI does not prove correctness.
+Do not expand the review into unrelated files or optional follow-up work. Style
+preferences and speculative improvements are not merge blockers. Missing tests
+block only when a meaningful behavior change has a specific untested failure case.
+For internally consistent documentation, typo, formatting, and other low-risk
+changes, proceed when the supplied diff shows no concrete material issue.
 
 Post a concise summary followed by concrete findings, ordered by severity.
 If there are no findings, say no concrete defects were found in the supplied

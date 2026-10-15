@@ -101,6 +101,11 @@ review found no material unresolved defects or limitations. Shell, filesystem,
 browsing, and delegation tools are disabled. Repository text is untrusted data.
 The review focuses on concrete defects introduced by the change, with patch
 evidence and consequences, rather than general objections to the stated goal.
+Review depth is proportional to the change: low-risk documentation, typo, and
+formatting edits can pass without runtime tests or inspection of unrelated files.
+Style preferences, optional follow-up work, and speculative improvements do not
+block merging; missing tests matter when a behavior change has a specific
+untested failure case.
 
 `post-comment` takes no model-supplied repository or PR number. It checks the
 repository allowlist, acquires a per-PR Redis lock, validates the review ID
