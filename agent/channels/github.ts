@@ -7,28 +7,7 @@ export default defineChannel({
   turnPolicy: "queue",
   routes: [
     POST("/webhooks/github", async (request, { from }) => {
-      // Bound actual streamed bytes, not only the caller-provided Content-Length.
-      const body = request.body;
-
-      if (!body) {
-        return new Response("Missing body", { status: 400 });
-      }
-
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-
-      // Returning early cancels the stream when the limit is exceeded.
-      for await (const chunk of body) {
-        size += chunk.length;
-
-        if (size > 2_000_000) {
-          return new Response("Payload too large", { status: 413 });
-        }
-
-        chunks.push(chunk);
-      }
-
-      const raw = Buffer.concat(chunks);
+      const raw = Buffer.from(await request.arrayBuffer());
 
       const signatureValid = await verifySignature(
         raw,
@@ -42,7 +21,7 @@ export default defineChannel({
 
       const delivery = request.headers.get("x-github-delivery");
 
-      if (!delivery || !/^[\w-]{1,128}$/.test(delivery)) {
+      if (!delivery) {
         return new Response("Invalid delivery ID", { status: 400 });
       }
 

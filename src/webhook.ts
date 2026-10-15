@@ -18,7 +18,7 @@ const prNumber = z.object({ number: z.number().int().positive() });
 
 const schema = z.object({
   action: z.string().optional(),
-  repository: z.object({ full_name: z.string().regex(/^[\w.-]+\/[\w.-]+$/) }),
+  repository: z.object({ full_name: z.string().min(1) }),
   pull_request: prNumber.optional(),
   check_run: z.object({ head_sha: z.string(), pull_requests: z.array(prNumber) }).optional(),
   check_suite: z.object({ head_sha: z.string(), pull_requests: z.array(prNumber) }).optional(),

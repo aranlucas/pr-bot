@@ -13,7 +13,7 @@ const expectedUrl = "https://pr-bot-kohl.vercel.app/webhooks/github";
 const records = z
   .array(
     z.object({
-      repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+      repository: z.string().min(1),
       hookId: z.number().int().positive(),
     }),
   )
