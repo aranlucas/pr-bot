@@ -1,0 +1,30 @@
+{
+  "name": "pr-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An Eve agent that reviews GitHub PRs through OpenRouter and merges eligible changes",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "eve dev",
+    "build": "eve build",
+    "start": "eve start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.69",
+    "@octokit/rest": "^22.0.1",
+    "@upstash/redis": "^1.39.0",
+    "ai": "^7.0.141",
+    "eve": "^0.79.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
