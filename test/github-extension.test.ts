@@ -26,7 +26,7 @@ const ctx: ToolContext = {
   messages: [],
 };
 
-test("the mounted extension resolves native review tools and posts and merges through the GitHub App", async () => {
+test("the mounted extension keeps review reads and comments without exposing native merge", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   vi.stubEnv("GITHUB_APP_ID", "123");
   vi.stubEnv("GITHUB_APP_PRIVATE_KEY", privateKey.export({ type: "pkcs8", format: "pem" }));
@@ -67,14 +67,8 @@ test("the mounted extension resolves native review tools and posts and merges th
       );
     }
 
-    if (path === "/repos/acme/app/pulls/42/merge") {
-      assert.strictEqual(
-        z.object({ merge_method: z.string() }).parse(JSON.parse(z.string().parse(init?.body)))
-          .merge_method,
-        "squash",
-      );
-
-      return Promise.resolve(Response.json({ merged: true, sha: "merged", message: "Merged" }));
+    if (path === "/repos/acme/app/commits/reviewed-head/status") {
+      return Promise.resolve(Response.json({ state: "success", total_count: 0, statuses: [] }));
     }
 
     throw new Error(`Unexpected API path: ${path}`);
@@ -97,7 +91,8 @@ test("the mounted extension resolves native review tools and posts and merges th
   assert.ok(tools.listCheckRuns);
   assert.ok(tools.getCombinedStatus);
   assert.ok(tools.addPullRequestComment);
-  assert.ok(tools.mergePullRequest);
+  assert.strictEqual(tools.mergePullRequest, undefined);
+  assert.deepEqual(githubExtension.config.exclude, ["mergePullRequest"]);
 
   const input = { owner: "acme", repo: "app", pullNumber: 42 };
 
@@ -108,12 +103,13 @@ test("the mounted extension resolves native review tools and posts and merges th
 
   assert.strictEqual(z.object({ id: z.number() }).parse(comment).id, 1);
 
-  const merge = await tools.mergePullRequest.execute(
-    { ...input, mergeMethod: "squash" },
-    { ...ctx, toolName: "github__mergePullRequest" },
+  const status = await tools.getCombinedStatus.execute(
+    { owner: "acme", repo: "app", ref: "reviewed-head" },
+    { ...ctx, toolName: "github__getCombinedStatus" },
   );
 
-  assert.strictEqual(z.object({ merged: z.boolean() }).parse(merge).merged, true);
+  assert.strictEqual(z.object({ state: z.string() }).parse(status).state, "success");
   assert.ok(calls.includes("POST /repos/acme/app/issues/42/comments"));
-  assert.ok(calls.includes("PUT /repos/acme/app/pulls/42/merge"));
+  assert.ok(calls.includes("GET /repos/acme/app/commits/reviewed-head/status"));
+  assert.ok(!calls.some((call) => call.includes("/merge")));
 });

@@ -4,6 +4,6 @@ import { githubToken } from "@/github";
 export default githubExtension({
   token: githubToken,
   preset: "code-review",
-  include: ["mergePullRequest"],
+  exclude: ["mergePullRequest"],
   requireApproval: false,
 });

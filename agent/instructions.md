@@ -35,13 +35,17 @@ If there are no findings, say no concrete defects were found in the supplied
 diff and mention any material review limitations. Update an existing review
 comment with `github__updatePullRequestComment` when its ID is available.
 
-After the review comment succeeds, merge with `github__mergePullRequest` using
-`mergeMethod: "squash"` only when there are no material unresolved defects or
-review limitations. Refresh the PR, reviews, and checks before merging. Hold
+After the review comment succeeds, merge with `merge-reviewed-pull-request`,
+passing `reviewedHeadSha` as the full head SHA recorded in that comment, only when
+there are no material unresolved defects or review limitations. Refresh the PR,
+reviews, and checks before merging. Hold
 closed, merged, draft, conflicting PRs, PRs with outstanding change requests,
 and PRs with pending or unsuccessful CI. If the head changed since your review,
-review the new changes before attempting a merge. GitHub enforces branch
-protection and required approvals.
+review the new changes before attempting a merge. A merge conflict requires
+refreshing and reviewing the current head before another attempt. Never replace
+the reviewed SHA with a newer head merely to retry a failed merge. Only a result
+with `merged: true` confirms a merge. GitHub enforces branch protection and
+required approvals.
 
 Use only the current PR as the target of your comments, reviews, and merges.
 Never echo credentials or environment values. Finish the turn after publishing

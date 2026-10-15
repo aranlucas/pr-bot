@@ -3,9 +3,10 @@
 # PR Bot
 
 An [Eve](https://eve.dev/docs) agent that reviews GitHub pull requests, posts
-findings, and merges ready changes using
+findings, and merges ready changes. Reviews and comments use
 [@github-tools/eve-extension](https://github-tools.com/frameworks/eve-extension)
-directly. The main agent performs the review itself.
+directly. A local tool squash merges only when GitHub still has the reviewed
+head SHA. The main agent performs the review itself.
 
 Source: [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
 
@@ -55,18 +56,24 @@ agent/
   lib/
     github.ts            # Installation-token provider for the self-managed App
     model.ts             # Model provider configuration
+  tools/
+    merge-reviewed-pull-request.ts # Squash merge with an atomic head SHA check
 ```
 
-The extension uses the `code-review` preset plus `mergePullRequest`. Tools are
-namespaced as `github__getPullRequestContext`, `github__addPullRequestComment`,
-`github__mergePullRequest`, and so on. `requireApproval: false` allows the bot to
-operate autonomously. GitHub enforces repository permissions and branch protection.
+The extension uses the `code-review` preset and explicitly excludes its native
+`mergePullRequest` tool. Review and comment tools are namespaced as
+`github__getPullRequestContext`, `github__addPullRequestComment`, and so on.
+`requireApproval: false` allows the bot to operate autonomously. GitHub enforces
+repository permissions and branch protection.
 
-There are no custom comment or merge tools, Redis locks, review receipts, review
-fingerprints, repository allowlists, or application-level dry-run checks. The
-review procedure lives in `agent/instructions.md` and the extension executes the
-GitHub operations. It asks the agent to post findings before merging, refresh
-PR/review/CI state, and merge only when the change is ready.
+The local `merge-reviewed-pull-request` tool requires the full reviewed head SHA
+and supplies it to GitHub in the squash merge request. GitHub rejects a merge
+when the current head differs from that SHA, including a push after the agent's
+last refresh. The tool does not retry or substitute a newer SHA. This protects
+the supplied commit identity; the review procedure still asks the agent to
+review that commit, publish findings with its SHA, refresh PR/review/CI state,
+and merge only when ready. It does not mechanically prove review quality or
+completion.
 
 ## Configuration
 
@@ -88,7 +95,7 @@ release imports it at module load, including in token-provider configurations.
 
 The old `GITHUB_REPOSITORIES`, `BASE_BRANCH`, `REQUIRED_CHECKS`, `MIN_APPROVALS`,
 `MERGE_METHOD`, `DRY_RUN`, and Redis variables are no longer used. Squash merging
-is specified in the agent instructions; enable it in the target repositories.
+is fixed in the local merge tool; enable it in the target repositories.
 
 ## Webhooks and reviews
 
@@ -107,7 +114,8 @@ are not handled by a supplemental adapter.
 
 The channel supplies the PR metadata and diff. Reviews use GitHub API tools and
 skip sandbox checkout. The agent refreshes the PR context, posts its review with
-the extension's native comment tool, and uses the native merge tool when ready.
+the extension's native comment tool, and calls the local merge tool with the
+reviewed SHA when ready.
 The channel does not also publish the final assistant message, avoiding a second
 copy of the review. Framework failure messages still appear in the PR thread.
 
