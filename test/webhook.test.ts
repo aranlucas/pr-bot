@@ -3,7 +3,29 @@ import { createHmac } from "node:crypto";
 import { test } from "node:test";
 import { parseEvent, verifySignature } from "@/webhook";
 
-const repository = { full_name: "Acme/App" };
+const repository = { id: 123, full_name: "Acme/App" } as const;
+
+interface PullNumber {
+  readonly number: number;
+}
+
+interface CheckPayload {
+  readonly head_sha: string;
+  readonly pull_requests: readonly PullNumber[];
+}
+
+interface EventPayload {
+  readonly repository?: typeof repository;
+  readonly action?: string;
+  readonly pull_request?: PullNumber;
+  readonly check_run?: CheckPayload;
+  readonly check_suite?: CheckPayload;
+  readonly sha?: string;
+}
+
+function payload(value: EventPayload): string {
+  return JSON.stringify({ installation: { id: 99 }, ...value });
+}
 
 await test("verifies exact raw bytes and rejects forged, malformed and missing signatures", async () => {
   const body = Buffer.from('{ "action": "opened" }');
@@ -33,9 +55,11 @@ await test("PR and review events map to a normalized repository and PR number", 
     ["pull_request_review", "dismissed"],
   ]) {
     assert.deepEqual(
-      parseEvent(event, JSON.stringify({ repository, action, pull_request: { number: 7 } })),
+      parseEvent(event, payload({ repository, action, pull_request: { number: 7 } })),
       {
         repository: "acme/app",
+        repositoryId: 123,
+        installationId: 99,
         numbers: [7],
         sha: undefined,
       },
@@ -47,52 +71,68 @@ await test("completed checks support PR associations and SHA fallback", () => {
   assert.deepEqual(
     parseEvent(
       "check_run",
-      JSON.stringify({
+      payload({
         repository,
         action: "completed",
         check_run: { head_sha: "abc", pull_requests: [{ number: 7 }] },
       }),
     ),
-    { repository: "acme/app", numbers: [7], sha: "abc" },
+    { repository: "acme/app", repositoryId: 123, installationId: 99, numbers: [7], sha: "abc" },
   );
   assert.deepEqual(
     parseEvent(
       "check_suite",
-      JSON.stringify({
+      payload({
         repository,
         action: "completed",
         check_suite: { head_sha: "abc", pull_requests: [] },
       }),
     ),
-    { repository: "acme/app", numbers: [], sha: "abc" },
+    { repository: "acme/app", repositoryId: 123, installationId: 99, numbers: [], sha: "abc" },
   );
-  assert.deepEqual(parseEvent("status", JSON.stringify({ repository, sha: "abc" })), {
+  assert.deepEqual(parseEvent("status", payload({ repository, sha: "abc" })), {
     repository: "acme/app",
+    repositoryId: 123,
+    installationId: 99,
     numbers: [],
     sha: "abc",
   });
 });
 
 await test("irrelevant events never reach the model", () => {
-  assert.equal(parseEvent("issue_comment", JSON.stringify({})), null);
+  assert.equal(parseEvent("issue_comment", payload({})), null);
   assert.equal(
     parseEvent(
       "pull_request",
-      JSON.stringify({ repository, action: "closed", pull_request: { number: 7 } }),
+      payload({ repository, action: "closed", pull_request: { number: 7 } }),
     ),
     null,
   );
-  assert.equal(parseEvent("check_run", JSON.stringify({ repository, action: "created" })), null);
+  assert.equal(parseEvent("check_run", payload({ repository, action: "created" })), null);
 });
 
 await test("invalid targets and incomplete actionable events are rejected", () => {
-  assert.throws(() => parseEvent("pull_request", JSON.stringify({ repository, action: "opened" })));
+  assert.throws(() => parseEvent("pull_request", payload({ repository, action: "opened" })));
   assert.throws(() =>
     parseEvent(
       "pull_request",
-      JSON.stringify({ repository, action: "opened", pull_request: { number: -1 } }),
+      payload({ repository, action: "opened", pull_request: { number: -1 } }),
     ),
   );
-  assert.throws(() => parseEvent("check_run", JSON.stringify({ repository, action: "completed" })));
-  assert.throws(() => parseEvent("status", JSON.stringify({ repository })));
+  assert.throws(() => parseEvent("check_run", payload({ repository, action: "completed" })));
+  assert.throws(() => parseEvent("status", payload({ repository })));
+});
+
+await test("check targets come from check associations even when an unrelated PR field is present", () => {
+  const event = parseEvent(
+    "check_run",
+    payload({
+      repository,
+      action: "completed",
+      pull_request: { number: 999 },
+      check_run: { head_sha: "head", pull_requests: [{ number: 7 }] },
+    }),
+  );
+
+  assert.deepEqual(event?.numbers, [7]);
 });

@@ -44,15 +44,11 @@ Set variables in `.env.local` locally and the Vercel Production environment when
   `:free` model is accepted. Requests also cap provider prompt and completion
   prices at zero. There is no paid-model fallback. Free-provider availability,
   context windows, and rate limits can cause a review to fail or wait.
-- `GITHUB_TOKEN`: token that can read private Checks API results and merge PRs.
-  The installed credential is a dedicated classic PAT with only the `repo` scope,
-  expiring November 14, 2026. The fine-grained tokens tested during setup returned
-  `403` for private check runs. Use credentials without branch-rule exemptions.
-- `GITHUB_TOKEN_<OWNER>`: optional token for another owner, e.g.
-  `GITHUB_TOKEN_SIDEQUEST_LABS`. Owner names are uppercased, with punctuation
-  replaced by underscores. The current installation uses the verified repository
-  token for personal and organization access.
-- `GITHUB_WEBHOOK_SECRET`: random signing secret matching every installed webhook.
+- `GITHUB_APP_ID`: ID of the self-managed GitHub App (`5335315` for this installation).
+- `GITHUB_APP_PRIVATE_KEY`: PEM private key, stored as a Vercel Secret. Eve and
+  Octokit obtain short-lived installation tokens; personal access tokens are not used.
+- `GITHUB_APP_SLUG`: `aranlucas-pr-bot`.
+- `GITHUB_WEBHOOK_SECRET`: signing secret matching the App webhook.
 - `GITHUB_REPOSITORIES`: comma-separated exact `owner/repo` or `owner/*` entries.
   The deployed configuration covers `aranlucas/*` and `sidequest-labs/*`.
 - `BASE_BRANCH`: allowed merge target. `default` uses each repository's default
@@ -74,9 +70,17 @@ the bot should not be exempt from them.
 
 ## Webhooks and review behavior
 
-Configure `https://YOUR-DEPLOYMENT/webhooks/github` with `application/json`, the
-matching signing secret, and **Pull requests**, **Pull request reviews**,
-**Check runs**, **Check suites**, and **Statuses** events.
+Register a self-managed GitHub App with Contents and Pull requests read/write,
+Checks and Commit statuses read, and the automatically included Metadata read.
+Set its webhook to `https://YOUR-DEPLOYMENT/eve/v1/github` with the matching
+signing secret. Subscribe to **Pull requests**, **Pull request reviews**,
+**Check runs**, **Check suites**, and **Statuses**.
+
+Install the App on each personal or organization account and select **All
+repositories** to include current and future repositories. GitHub requires the App
+to allow installation on other accounts for organization coverage. The server's
+repository allowlist still limits which installations can start reviews. No
+Vercel Connect connector, quota, or provider token exchange is involved.
 
 Every inspectable open PR is reviewed automatically; **no label is required**.
 Draft PRs and PRs waiting on CI or approval still get a model review, while the
@@ -85,9 +89,17 @@ merge gates hold them. Closed PRs, incomplete or binary diffs, empty diffs, over
 incomplete model review. A changed code-review input triggers a new review;
 repeated CI/review events reuse a cached decision for the same input.
 
-The channel verifies HMAC over raw bytes, limits payload size, validates the
-repository, and waits for durable Eve acceptance before returning `202`.
-A `202` means accepted, not reviewed or merged. Events queue per PR.
+Eve's built-in GitHub channel verifies and dispatches PR events. A supplemental
+adapter handles approval/status events, all check-associated PRs, and commit
+lookup when GitHub omits those associations. It verifies signatures before
+parsing and routes through the built-in channel's receive hook. Both paths bind
+the verified installation and PR to a service principal; the tool cannot select
+another target. Vercel enforces the request-body size limit. Events queue per PR.
+
+Webhook acknowledgement means received or queued, not reviewed or merged. Eve's
+native PR path acknowledges background dispatch with `200`; the supplemental
+path waits for durable acceptance and returns `202`. Check Eve runs and server
+logs for processing errors before redelivering an event.
 
 `review-pull-request` takes no model-supplied target. It uses the verified webhook
 principal, acquires a per-PR Redis lock, and fetches current GitHub state. The
@@ -102,16 +114,16 @@ errors, malformed decisions, stale state, or Redis failure prevent merging.
 Model judgment can be wrong; it does not replace GitHub policy or human approvals.
 
 The tool writes structured `pr-review` logs and retains delivery results and
-review decisions in Redis for seven days. It does not post PR comments. Errors
-appear in Eve runs and server logs. Correct the issue and redeliver the webhook;
-GitHub does not see failures that occur after Eve's `202` receipt.
+review decisions in Redis for seven days. Eve's built-in channel can post framework failure messages to PR threads. The
+review tool's structured result remains in logs and Redis. Correct processing
+errors and redeliver the webhook; failures after acknowledgement are not
+reported through the original HTTP response.
 
 The production installation uses the free Upstash resource `pr-bot-redis`.
-Webhooks cover the active personal and `sidequest-labs` repositories configured
-at installation time. The owner wildcard permits new repositories, but a newly
-created repository still needs its webhook installed. Archived repositories are
-excluded. A crash after merging cannot merge that same PR twice: a retry sees it
-is already merged.
+The App is installed with **All repositories** on `aranlucas` and `sidequest-labs`.
+Each review uses the installation ID from its authenticated event, so personal
+and organization tokens are kept separate. A crash after merging cannot merge
+that same PR twice: a retry sees it is already merged.
 
 ## Deployment
 
@@ -130,25 +142,14 @@ Verify a signed GitHub ping and a draft PR review before enabling actual merges.
 GitHub-hosted CI also requires an account with working Actions billing/capacity;
 account billing failures are independent of local test results.
 
-## Current rollout status
+## Rollout
 
-The pnpm/Oxforge and free-only release is pushed to `main`. Local lint, format,
-type checks, 49 tests, and the Eve build pass. Live API checks verified private
-check-run access on personal and `sidequest-labs` repositories, plus free-model
-structured output and tool calling.
+Keep `DRY_RUN=true` until a signed App delivery and a draft PR review succeed in
+production. The old repository webhooks at `/webhooks/github` must stay paused;
+the new endpoint accepts GitHub App events with an installation ID.
 
-Vercel rejected the release because the account reached its daily free deployment
-limit. The 65 installed bot webhooks are paused while the previous version is
-still deployed. Actual merging remains disabled (`DRY_RUN=true`).
-
-After deployment capacity is restored, deploy this checkout and then resume delivery:
-
-```sh
-pnpm exec eve deploy
-pnpm webhooks:resume
-```
-
-The webhook command uses GitHub CLI authentication and the local installation
-inventory at `.vercel/repository-webhooks.json`. It verifies each webhook's URL
-before changing it. `pnpm webhooks:pause` pauses the same installation.
-Run a draft PR through the deployed service before setting `DRY_RUN=false`.
+The legacy `pnpm webhooks:pause` and `pnpm webhooks:resume` commands manage only
+the old repository webhooks. Do not resume them after the App migration. Their
+local inventory is `.vercel/repository-webhooks.json`; these hooks can be removed
+after production verification. Enable or pause the new App webhook in its GitHub
+App settings.

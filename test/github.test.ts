@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { generateKeyPairSync } from "node:crypto";
 import { createGitHub } from "@/github";
 
 interface PullResponse {
@@ -107,7 +108,7 @@ function client(options: ClientOptions = {}) {
   return { github, calls };
 }
 
-const target = { repository: "acme/app", number: 42, delivery: "one" };
+const target = { repository: "acme/app", number: 42, installationId: 99, delivery: "one" };
 
 const review = (
   id: number,
@@ -190,4 +191,52 @@ await Promise.all(
 
 await test("a full text patch is accepted as complete", async () => {
   assert.equal((await client().github.snapshot(target)).completeDiff, true);
+});
+
+await test("an App client requires a verified installation instead of falling back to a PAT", () => {
+  assert.throws(() => createGitHub(), { message: "Verified GitHub App installation required" });
+});
+
+await test("Octokit exchanges the selected installation for a token before merging the exact SHA", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const calls: string[] = [];
+
+  const github = createGitHub({
+    appId: "123",
+    installationId: 456,
+    privateKey: privateKey.export({ type: "pkcs8", format: "pem" }),
+    fetch: (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      const headers = new Headers(init?.headers);
+      calls.push(url.pathname);
+
+      if (url.pathname === "/app/installations/456/access_tokens") {
+        assert.ok(headers.get("authorization")?.startsWith("bearer ey"));
+
+        return Promise.resolve(
+          Response.json({
+            token: "installation-token",
+            expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+            permissions: {},
+            repository_selection: "all",
+          }),
+        );
+      }
+
+      assert.equal(url.pathname, "/repos/acme/app/pulls/42/merge");
+      assert.equal(headers.get("authorization"), "token installation-token");
+      assert.equal(init?.body, JSON.stringify({ sha: "reviewed-head", merge_method: "squash" }));
+
+      return Promise.resolve(Response.json({ merged: true, sha: "merge-sha", message: "Merged" }));
+    },
+  });
+
+  assert.equal(
+    (await github.merge({ ...target, installationId: 456 }, "reviewed-head", "squash")).merged,
+    true,
+  );
+  assert.deepEqual(calls, [
+    "/app/installations/456/access_tokens",
+    "/repos/acme/app/pulls/42/merge",
+  ]);
 });

@@ -16,9 +16,20 @@ export function verifySignature(
 
 const prNumber = z.object({ number: z.number().int().positive() });
 
+export const pullRequestActions = [
+  "opened",
+  "reopened",
+  "synchronize",
+  "labeled",
+  "unlabeled",
+  "ready_for_review",
+  "edited",
+];
+
 const schema = z.object({
   action: z.string().optional(),
-  repository: z.object({ full_name: z.string().min(1) }),
+  repository: z.object({ id: z.number().int().positive(), full_name: z.string().min(1) }),
+  installation: z.object({ id: z.number().int().positive() }),
   pull_request: prNumber.optional(),
   check_run: z.object({ head_sha: z.string(), pull_requests: z.array(prNumber) }).optional(),
   check_suite: z.object({ head_sha: z.string(), pull_requests: z.array(prNumber) }).optional(),
@@ -34,18 +45,7 @@ export function parseEvent(event: string, body: string) {
 
   const value = schema.parse(JSON.parse(body));
 
-  if (
-    event === "pull_request" &&
-    ![
-      "opened",
-      "reopened",
-      "synchronize",
-      "labeled",
-      "unlabeled",
-      "ready_for_review",
-      "edited",
-    ].includes(value.action ?? "")
-  ) {
+  if (event === "pull_request" && !pullRequestActions.includes(value.action ?? "")) {
     return null;
   }
 
@@ -76,9 +76,12 @@ export function parseEvent(event: string, body: string) {
 
   return {
     repository: value.repository.full_name.toLowerCase(),
-    numbers: value.pull_request
-      ? [value.pull_request.number]
-      : (check?.pull_requests.map((pr) => pr.number) ?? []),
+    repositoryId: value.repository.id,
+    installationId: value.installation.id,
+    numbers:
+      ["pull_request", "pull_request_review"].includes(event) && value.pull_request
+        ? [value.pull_request.number]
+        : (check?.pull_requests.map((pr) => pr.number) ?? []),
     sha: event === "status" ? value.sha : check?.head_sha,
   };
 }

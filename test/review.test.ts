@@ -5,7 +5,12 @@ import type { Config } from "@/config";
 import type { GitHub, Snapshot, Target } from "@/github";
 import type { Store } from "@/store";
 
-const target: Target = { repository: "acme/app", number: 42, delivery: "delivery-1" };
+const target: Target = {
+  repository: "acme/app",
+  number: 42,
+  installationId: 99,
+  delivery: "delivery-1",
+};
 
 const policy: Config = {
   repositories: new Set(["acme/app"]),

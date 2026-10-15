@@ -10,7 +10,7 @@ export default defineTool({
   execute(_input, ctx) {
     const caller = ctx.session.auth.current;
 
-    if (caller?.authenticator !== "github-webhook" || caller.principalType !== "service") {
+    if (caller?.authenticator !== "github-app" || caller.principalType !== "service") {
       throw new Error("Verified webhook principal required");
     }
 
@@ -19,6 +19,7 @@ export default defineTool({
         repository: z.string(),
         number: z.coerce.number().int().positive(),
         delivery: z.string(),
+        installationId: z.coerce.number().int().positive(),
       })
       .parse(caller.attributes);
 

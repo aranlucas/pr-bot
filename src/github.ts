@@ -1,10 +1,12 @@
 import { Octokit } from "@octokit/rest";
-import { githubToken } from "@/config";
+import { createAppAuth } from "@octokit/auth-app";
+import { required } from "@/config";
 
 export interface Target {
   readonly repository: string;
   readonly number: number;
   readonly delivery: string;
+  readonly installationId: number;
 }
 
 export interface Check {
@@ -28,7 +30,9 @@ export interface MergeResult {
 export interface GitHubOptions {
   readonly fetch?: typeof fetch;
   readonly token?: string;
-  readonly repository?: string;
+  readonly installationId?: number;
+  readonly appId?: string;
+  readonly privateKey?: string;
 }
 
 export interface Snapshot {
@@ -65,8 +69,24 @@ function repoArgs(repository: string) {
 }
 
 export function createGitHub(options?: GitHubOptions): GitHub {
+  if (!options?.token && !options?.installationId) {
+    throw new Error("Verified GitHub App installation required");
+  }
+
   const api = new Octokit({
-    auth: options?.token ?? githubToken(options?.repository ?? ""),
+    ...(options?.token
+      ? { auth: options.token }
+      : {
+          authStrategy: createAppAuth,
+          auth: {
+            appId: options?.appId ?? required("GITHUB_APP_ID"),
+            privateKey: (options?.privateKey ?? required("GITHUB_APP_PRIVATE_KEY")).replaceAll(
+              String.raw`\n`,
+              "\n",
+            ),
+            installationId: options?.installationId,
+          },
+        }),
     request: { timeout: 20_000, fetch: options?.fetch },
   });
 

@@ -52,12 +52,3 @@ export function repositoryAllowed(repository: string, policy: Config): boolean {
 
   return policy.repositories.has(repository) || policy.repositories.has(`${owner}/*`);
 }
-
-export function githubToken(repository: string): string {
-  const owner = repository
-    .split("/")[0]
-    .toUpperCase()
-    .replaceAll(/[^A-Z0-9]/g, "_");
-
-  return process.env[`GITHUB_TOKEN_${owner}`] ?? required("GITHUB_TOKEN");
-}

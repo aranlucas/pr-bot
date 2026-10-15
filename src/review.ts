@@ -169,7 +169,7 @@ export async function reviewPullRequest(
   dependencies?: Readonly<ReviewDependencies>,
 ): Promise<Result> {
   const deps = dependencies ?? {
-    github: createGitHub({ repository: target.repository }),
+    github: createGitHub({ installationId: target.installationId }),
     store: createStore(),
     policy: config(),
     assess,
