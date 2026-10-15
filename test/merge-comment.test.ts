@@ -108,6 +108,7 @@ await test("reuses only this App's existing explanation for the same commit", as
   });
 
   await f.github.merge(target, "reviewed-head", "squash", reason);
+
   assert.equal(f.calls[1], "PATCH /repos/acme/app/issues/comments/4");
 });
 
@@ -157,4 +158,60 @@ await test("the PR lease is checked again after posting and before merging", asy
   );
   assert.ok(f.calls.every((call) => !call.startsWith("PUT")));
   assert.ok(f.bodies[1].includes("Merge stopped or unconfirmed."));
+});
+
+await test("posts held review details without attempting a merge", async () => {
+  const f = fixture();
+  await f.github.postHold(target, "reviewed-head", "CI pending\nModel requests changes", [
+    "Missing tests",
+  ]);
+  assert.deepEqual(f.calls, [
+    "GET /repos/acme/app/issues/7/comments",
+    "POST /repos/acme/app/issues/7/comments",
+  ]);
+  assert.ok(f.bodies[0].includes("pr-bot:hold:reviewed-head"));
+  assert.ok(f.bodies[0].includes("Missing tests"));
+  assert.ok(f.bodies[0].includes("CI pending"));
+});
+
+await test("updates only this App's hold comment for the same commit", async () => {
+  const f = fixture({
+    comments: [
+      {
+        id: 1,
+        body: "<!-- pr-bot:hold:reviewed-head -->",
+        user: { login: "author", type: "User" },
+      },
+      {
+        id: 2,
+        body: "<!-- pr-bot:hold:reviewed-head -->",
+        user: { login: "other[bot]", type: "Bot" },
+      },
+      { id: 3, body: "<!-- pr-bot:hold:old-head -->", user: { login: "pr-bot[bot]", type: "Bot" } },
+      {
+        id: 4,
+        body: "<!-- pr-bot:hold:reviewed-head -->",
+        user: { login: "pr-bot[bot]", type: "Bot" },
+      },
+    ],
+  });
+
+  await f.github.postHold(target, "reviewed-head", reason, []);
+
+  assert.equal(f.calls[1], "PATCH /repos/acme/app/issues/comments/4");
+});
+
+await test("an unchanged hold comment is not rewritten on later deliveries", async () => {
+  const first = fixture();
+  await first.github.postHold(target, "reviewed-head", reason, []);
+
+  const body = z.object({ body: z.string() }).parse(JSON.parse(first.bodies[0])).body;
+
+  const next = fixture({
+    comments: [{ id: 4, body, user: { login: "pr-bot[bot]", type: "Bot" } }],
+  });
+
+  await next.github.postHold(target, "reviewed-head", reason, []);
+
+  assert.deepEqual(next.calls, ["GET /repos/acme/app/issues/7/comments"]);
 });

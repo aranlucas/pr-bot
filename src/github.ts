@@ -60,6 +60,7 @@ export interface Snapshot {
 export interface GitHub {
   snapshot(target: Target): Promise<Snapshot>;
   prsForCommit(repository: string, sha: string): Promise<number[]>;
+  postHold(target: Target, sha: string, reason: string, risks: readonly string[]): Promise<void>;
   merge(
     target: Target,
     sha: string,
@@ -73,6 +74,10 @@ function repoArgs(repository: string) {
   const [owner, repo] = repository.split("/");
 
   return { owner, repo };
+}
+
+function quote(text: string): string {
+  return `> ${text.replaceAll("\r", "").replaceAll("\n", "\n> ")}`;
 }
 
 export function createGitHub(options?: GitHubOptions): GitHub {
@@ -207,6 +212,39 @@ export function createGitHub(options?: GitHubOptions): GitHub {
           patch: file.patch,
         })),
       };
+    },
+    async postHold(target, sha, reason, risks) {
+      const args = repoArgs(target.repository);
+      const marker = `<!-- pr-bot:hold:${sha} -->`;
+      const login = `${options?.appSlug ?? required("GITHUB_APP_SLUG")}[bot]`;
+
+      const body = [
+        marker,
+        `**Review held** for commit \`${sha}\`. No merge was attempted.`,
+        `**Reason and blockers:**\n\n${quote(reason)}`,
+        ...(risks.length ? [`**Reported risks:**\n\n${risks.map(quote).join("\n\n")}`] : []),
+      ].join("\n\n");
+
+      const comments = await api.paginate(api.issues.listComments, {
+        ...args,
+        issue_number: target.number,
+        per_page: 100,
+      });
+
+      const previous = comments.find(
+        (comment) =>
+          comment.user?.type === "Bot" &&
+          comment.user.login === login &&
+          comment.body?.startsWith(marker),
+      );
+
+      if (previous) {
+        if (previous.body !== body) {
+          await api.issues.updateComment({ ...args, comment_id: previous.id, body });
+        }
+      } else {
+        await api.issues.createComment({ ...args, issue_number: target.number, body });
+      }
     },
     async merge(target, sha, merge_method, reason, beforeMerge) {
       const args = repoArgs(target.repository);
