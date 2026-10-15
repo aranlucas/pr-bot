@@ -7,4 +7,9 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider@4.0.28"
   - "@aranlucas/oxforge@0.2.2"
   - ai@7.0.142
-  - eve@0.79.2
+  - eve@0.79.2 || 0.80.0
+  - "@aranlucas/kit-skills@0.0.0-stage || 1.0.15"
+  - "@vercel/connect@2.5.2"
+  - "@vitest/mocker@5.0.5"
+  - "@vitest/spy@5.0.5"
+  - vitest@5.0.5
