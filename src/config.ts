@@ -40,8 +40,8 @@ export function config(): Config {
     minApprovals: z.coerce
       .number()
       .int()
-      .min(1)
-      .parse(process.env.MIN_APPROVALS ?? "1"),
+      .min(0)
+      .parse(process.env.MIN_APPROVALS ?? "0"),
     mergeMethod: z.enum(["squash", "merge", "rebase"]).parse(process.env.MERGE_METHOD ?? "squash"),
     dryRun: z.enum(["true", "false"]).parse(process.env.DRY_RUN ?? "true") === "true",
   };

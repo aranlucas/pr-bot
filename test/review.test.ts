@@ -354,3 +354,19 @@ await test("a failed hold comment leaves the delivery retryable and reuses the r
   assert.equal(f.holds.length, 1);
   assert.equal(f.counts().assessments, 1);
 });
+
+await test("zero required approvals allows an otherwise eligible PR to merge", async () => {
+  const f = fixture({ ...snapshot(), approvals: [] });
+  f.deps.policy = { ...policy, minApprovals: 0 };
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
+  assert.equal(f.counts().merges, 1);
+});
+
+await test("change requests still block when human approvals are optional", async () => {
+  const f = fixture({ ...snapshot(), approvals: [], changesRequested: true });
+  f.deps.policy = { ...policy, minApprovals: 0 };
+  const result = await reviewPullRequest(target, f.deps);
+  assert.equal(result.outcome, "held");
+  assert.ok(result.reason.includes("A reviewer has requested changes"));
+  assert.equal(f.counts().merges, 0);
+});
