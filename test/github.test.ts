@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createGitHub } from "../src/github.js";
+import { createGitHub } from "@/github";
 
 interface PullResponse {
   readonly head: { readonly sha: string };

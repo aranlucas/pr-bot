@@ -6,7 +6,10 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./src/*.ts"]
+    }
   },
   "include": ["agent/**/*.ts", "src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "oxfmt.config.ts"]
 }

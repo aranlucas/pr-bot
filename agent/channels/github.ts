@@ -1,7 +1,7 @@
 import { defineChannel, POST } from "eve/channels";
-import { config, required, repositoryAllowed } from "../../src/config.js";
-import { createGitHub } from "../../src/github.js";
-import { parseEvent, verifySignature } from "../../src/webhook.js";
+import { config, required, repositoryAllowed } from "@/config";
+import { createGitHub } from "@/github";
+import { parseEvent, verifySignature } from "@/webhook";
 
 export default defineChannel({
   turnPolicy: "queue",

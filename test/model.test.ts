@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freeModelId } from "../src/model.js";
+import { freeModelId } from "@/model";
 
 await test("only explicitly free model routes are allowed", () => {
   assert.equal(freeModelId("openrouter/free"), "openrouter/free");

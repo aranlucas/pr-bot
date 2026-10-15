@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { config, repositoryAllowed, required, type Config } from "./config.js";
-import { createGitHub, type GitHub, type Snapshot, type Target } from "./github.js";
-import { reviewModel } from "./model.js";
-import { createStore, type Store } from "./store.js";
+import { config, repositoryAllowed, required, type Config } from "@/config";
+import { createGitHub, type GitHub, type Snapshot, type Target } from "@/github";
+import { reviewModel } from "@/model";
+import { createStore, type Store } from "@/store";
 
 export const decisionSchema = z.object({
   decision: z.enum(["merge", "hold"]),

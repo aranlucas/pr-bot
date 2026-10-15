@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blockers, reviewPullRequest, type Decision } from "../src/review.js";
-import type { Config } from "../src/config.js";
-import type { GitHub, Snapshot, Target } from "../src/github.js";
-import type { Store } from "../src/store.js";
+import { blockers, reviewPullRequest, type Decision } from "@/review";
+import type { Config } from "@/config";
+import type { GitHub, Snapshot, Target } from "@/github";
+import type { Store } from "@/store";
 
 const target: Target = { repository: "acme/app", number: 42, delivery: "delivery-1" };
 

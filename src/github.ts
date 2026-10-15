@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { githubToken } from "./config.js";
+import { githubToken } from "@/config";
 
 export interface Target {
   readonly repository: string;

@@ -1,5 +1,5 @@
 import { defineAgent } from "eve";
-import { reviewModel } from "../src/model.js";
+import { reviewModel } from "@/model";
 
 export default defineAgent({
   model: reviewModel,

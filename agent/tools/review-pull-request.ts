@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { reviewPullRequest } from "../../src/review.js";
+import { reviewPullRequest } from "@/review";
 
 export default defineTool({
   description:

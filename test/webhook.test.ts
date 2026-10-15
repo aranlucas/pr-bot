@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
-import { parseEvent, verifySignature } from "../src/webhook.js";
+import { parseEvent, verifySignature } from "@/webhook";
 
 const repository = { full_name: "Acme/App" };
 
