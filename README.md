@@ -50,8 +50,10 @@ Vercel Secrets. PR metadata and patches are sent to the configured review servic
 - `REQUIRED_CHECKS`: `*` (default) accepts each repository's own check names while
   requiring at least one check and success for every observed check. A comma-separated
   list additionally requires successful checks with those exact names.
-- `MIN_APPROVALS`: current-head human collaborator approvals; minimum/default `1`.
-  The author and bot accounts do not count. Active change requests block merging.
+- `MIN_APPROVALS`: required current-head human collaborator approvals; defaults
+  to `0` (no bot-imposed human approval requirement). Set a positive count to
+  require approvals. The author and bot accounts do not count. Active change
+  requests and GitHub branch protection still apply.
 - `MERGE_METHOD`: `squash` (default), `merge`, or `rebase`; enable it in each repository.
 - `DRY_RUN`: `true` by default; `false` enables actual merging after review.
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`: Redis credentials.
@@ -101,7 +103,7 @@ review model has no tools. The outer Eve agent has only this guarded tool;
 shell, filesystem, browsing, and delegation tools are disabled.
 
 A merge additionally requires an open non-draft PR, allowed base branch, clean
-GitHub merge state, current approvals, no change requests, successful CI, and a
+GitHub merge state, any configured approval count, no change requests, successful CI, and a
 model decision with no reported risks. The tool refetches and compares state,
 verifies lock ownership, and merges with the exact reviewed head SHA. Provider
 errors, malformed decisions, stale state, or Redis failure prevent merging.
