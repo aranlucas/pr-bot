@@ -1,64 +1,87 @@
-import { assert, test, vi } from "vitest";
-import { generateText, tool, ToolLoopAgent } from "ai";
+import { assert, describe, test, vi } from "vitest";
+import { generateText, isStepCount, streamText, tool, ToolLoopAgent } from "ai";
 import { z } from "zod";
-import { reviewModel } from "@/model";
 
-test.each([false, true])(
-  "the main model identifies PR Bot and calls the native GitHub comment tool (tool loop: %s)",
-  async (useToolLoop) => {
-    const input = {
-      owner: "acme",
-      repo: "app",
-      pullNumber: 42,
-      body: "No concrete defects found.",
-    };
+describe.each([
+  {
+    provider: "FreeLLMAPI",
+    baseURL: undefined,
+    expectedURL: "https://freellmapi-production-1175.up.railway.app/v1/chat/completions",
+  },
+  {
+    provider: "OpenRouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    expectedURL: "https://openrouter.ai/api/v1/chat/completions",
+  },
+])("$provider attribution", ({ baseURL, expectedURL }) => {
+  test.each([
+    { useToolLoop: false, streaming: false },
+    { useToolLoop: true, streaming: false },
+    { useToolLoop: false, streaming: true },
+    { useToolLoop: true, streaming: true },
+  ])(
+    "identifies PR Bot on every step (tool loop: $useToolLoop, streaming: $streaming)",
+    async ({ useToolLoop, streaming }) => {
+      vi.stubEnv("FREELLM_API_BASE_URL", baseURL);
+      vi.stubEnv("FREELLM_API_KEY", "test-model-key");
+      vi.stubEnv("FREELLM_MODEL", "auto");
+      vi.resetModules();
+      const { reviewModel } = await import("@/model");
 
-    let requests = 0;
+      const input = {
+        owner: "acme",
+        repo: "app",
+        pullNumber: 42,
+        body: "No concrete defects found.",
+      };
 
-    vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
-      assert.strictEqual(
-        url,
-        "https://freellmapi-production-1175.up.railway.app/v1/chat/completions",
-      );
-      const headers = new Headers(init?.headers);
-      const userAgent = z.string().parse(headers.get("user-agent"));
-      assert.ok(userAgent.startsWith("pr-bot (Eve agent; OpenAI-compatible) "));
-      assert.match(userAgent, /\bai\//);
+      let requests = 0;
 
-      if (useToolLoop) {
-        assert.ok(userAgent.includes("ai-sdk-agent/tool-loop"));
-      }
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
+        assert.strictEqual(url, expectedURL);
+        const headers = new Headers(init?.headers);
+        const userAgent = z.string().parse(headers.get("user-agent"));
+        assert.ok(!userAgent.includes("pr-bot"));
+        assert.match(userAgent, /\bai-sdk-provider-utils\//);
+        assert.ok(userAgent.includes("request-diagnostics/1.0"));
+        assert.strictEqual(headers.get("http-referer"), "https://github.com/aranlucas/pr-bot");
+        assert.strictEqual(headers.get("x-openrouter-title"), "PR Bot");
+        assert.strictEqual(headers.get("x-title"), "PR Bot");
+        assert.strictEqual(headers.get("authorization"), "Bearer test-model-key");
+        assert.strictEqual(headers.get("x-request-id"), "review-test");
 
-      assert.strictEqual(headers.get("content-type"), "application/json");
-      requests++;
-      const request = z.object({ body: z.string() }).parse(init);
+        if (useToolLoop) {
+          assert.ok(userAgent.includes("ai-sdk-agent/tool-loop"));
+        }
 
-      const body = z
-        .object({
-          model: z.string(),
-          response_format: z.unknown().optional(),
-          tools: z.array(z.object({ type: z.string(), function: z.object({ name: z.string() }) })),
-        })
-        .parse(JSON.parse(request.body));
+        assert.strictEqual(headers.get("content-type"), "application/json");
+        requests++;
+        const request = z.object({ body: z.string() }).parse(init);
 
-      assert.strictEqual(body.model, "auto");
-      assert.strictEqual(body.response_format, undefined);
-      assert.strictEqual(body.tools[0].function.name, "github__addPullRequestComment");
+        const body = z
+          .object({
+            model: z.string(),
+            stream: z.boolean().optional(),
+            response_format: z.unknown().optional(),
+            tools: z.array(
+              z.object({ type: z.string(), function: z.object({ name: z.string() }) }),
+            ),
+          })
+          .parse(JSON.parse(request.body));
 
-      return Promise.resolve(
-        Response.json({
-          id: "review-test",
-          object: "chat.completion",
-          created: 1,
-          model: "auto",
-          choices: [
-            {
-              index: 0,
-              message: {
+        assert.strictEqual(body.model, "auto");
+        assert.strictEqual(body.stream ?? false, streaming);
+        assert.strictEqual(body.response_format, undefined);
+        assert.strictEqual(body.tools[0].function.name, "github__addPullRequestComment");
+
+        const message =
+          requests === 1
+            ? {
                 role: "assistant",
                 content: null,
                 tool_calls: [
                   {
+                    index: 0,
                     id: "comment-call",
                     type: "function",
                     function: {
@@ -67,39 +90,85 @@ test.each([false, true])(
                     },
                   },
                 ],
-              },
-              finish_reason: "tool_calls",
+              }
+            : { role: "assistant", content: "Review posted." };
+
+        const finishReason = requests === 1 ? "tool_calls" : "stop";
+        const metadata = { id: "review-test", created: 1, model: "auto" };
+        const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
+
+        if (streaming) {
+          const chunks = [
+            {
+              ...metadata,
+              object: "chat.completion.chunk",
+              choices: [{ index: 0, delta: message, finish_reason: null }],
             },
-          ],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }),
-      );
-    });
+            {
+              ...metadata,
+              object: "chat.completion.chunk",
+              choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+              usage,
+            },
+          ];
 
-    const settings = {
-      model: reviewModel,
-      tools: {
-        github__addPullRequestComment: tool({
-          description: "Post the review",
-          inputSchema: z.object({
-            owner: z.string(),
-            repo: z.string(),
-            pullNumber: z.number(),
-            body: z.string(),
+          return Promise.resolve(
+            new Response(
+              chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+                "data: [DONE]\n\n",
+              { headers: { "content-type": "text/event-stream" } },
+            ),
+          );
+        }
+
+        return Promise.resolve(
+          Response.json({
+            ...metadata,
+            object: "chat.completion",
+            choices: [{ index: 0, message, finish_reason: finishReason }],
+            usage,
           }),
-        }),
-      },
-      maxRetries: 0,
-    };
+        );
+      });
 
-    const prompt = "Review this test change and post your findings";
+      const settings = {
+        model: reviewModel,
+        tools: {
+          github__addPullRequestComment: tool({
+            description: "Post the review",
+            inputSchema: z.object({
+              owner: z.string(),
+              repo: z.string(),
+              pullNumber: z.number(),
+              body: z.string(),
+            }),
+            execute: () => ({ posted: true }),
+          }),
+        },
+        maxRetries: 0,
+        stopWhen: isStepCount(2),
+        headers: { "user-agent": "request-diagnostics/1.0", "x-request-id": "review-test" },
+      };
 
-    const result = useToolLoop
-      ? await new ToolLoopAgent(settings).generate({ prompt })
-      : await generateText({ ...settings, prompt });
+      const prompt = "Review this test change and post your findings";
 
-    assert.strictEqual(requests, 1);
-    assert.strictEqual(result.toolCalls[0].toolName, "github__addPullRequestComment");
-    assert.deepEqual(result.toolCalls[0].input, input);
-  },
-);
+      const agent = new ToolLoopAgent(settings);
+
+      const result = streaming
+        ? useToolLoop
+          ? await agent.stream({ prompt })
+          : streamText({ ...settings, prompt })
+        : useToolLoop
+          ? await agent.generate({ prompt })
+          : await generateText({ ...settings, prompt });
+
+      const text = await result.text;
+      const steps = await result.steps;
+
+      assert.strictEqual(requests, 2);
+      assert.strictEqual(text, "Review posted.");
+      assert.strictEqual(steps[0].toolCalls[0].toolName, "github__addPullRequestComment");
+      assert.deepEqual(steps[0].toolCalls[0].input, input);
+    },
+  );
+});
