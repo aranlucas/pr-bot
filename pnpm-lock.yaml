@@ -170,8 +170,8 @@ importers:
         specifier: ^3.0.70
         version: 3.0.70(zod@4.6.7)
       '@aranlucas/kit-skills':
-        specifier: 1.0.15
-        version: 1.0.15(typebox@1.3.37)
+        specifier: 1.0.16
+        version: 1.0.16
       '@github-tools/eve-extension':
         specifier: ^0.8.1
         version: 0.8.1(@vercel/connect@2.5.2(ai@7.0.142(zod@4.6.7))(eve@0.80.0(ai@7.0.142(zod@4.6.7))))(ai@7.0.142(zod@4.6.7))(eve@0.80.0(ai@7.0.142(zod@4.6.7)))(vite@8.3.4(@types/node@26.6.5)(yaml@2.9.1))
@@ -243,14 +243,8 @@ packages:
     resolution: {integrity: sha512-6ThcmkJQXSMlBrf6mirIjUUS04Q5/kApbYTOzd5lZfYXLa1XPpnDLxP/G96/DKc00fDIUOW9S2ls0mSzb0+l9w==}
     engines: {node: '>=22'}
 
-  '@aranlucas/kit-skills@1.0.15':
-    resolution: {integrity: sha512-jR5RmBPU2CsCzPanwOig5r6W7orAvNCtVjqG8yY0Ukj7zcFzzVmiz2Qjt7ZVjGwm70cz2MjzzIrfapgG7qLiaA==}
-    peerDependencies:
-      '@earendil-works/pi-coding-agent': '*'
-      typebox: '*'
-    peerDependenciesMeta:
-      '@earendil-works/pi-coding-agent':
-        optional: true
+  '@aranlucas/kit-skills@1.0.16':
+    resolution: {integrity: sha512-SqvPReOEHK/NXw330HBPK11NX3yr0JY0OUTG6Z9PSaOV63a92Ke9B97+gyivXBHkUGCC96DIpph5Xy5j63bkNg==}
 
   '@aranlucas/oxforge@0.2.2':
     resolution: {integrity: sha512-5zmYmM1r4Y+F2TGKwGnzD4lS5wBS+IVVm6bOngWAMxyvuz1ipKtOCjoqRqMBP95b/p+iUtZmQqPsZ+OvoM5/6w==}
@@ -1488,9 +1482,6 @@ packages:
     resolution: {integrity: sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg==}
     engines: {node: '>=20'}
 
-  typebox@1.3.37:
-    resolution: {integrity: sha512-k+Qogwk7lztlItGvFf5v4GZPPStFAFehAyOKYeuqIHzi3dfTFqPOTx38JG09hmpcK6TQgctrTD06U/0CTTpM1g==}
-
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -1660,9 +1651,7 @@ snapshots:
     dependencies:
       json-schema: 0.4.0
 
-  '@aranlucas/kit-skills@1.0.15(typebox@1.3.37)':
-    dependencies:
-      typebox: 1.3.37
+  '@aranlucas/kit-skills@1.0.16': {}
 
   '@aranlucas/oxforge@0.2.2(oxfmt@0.73.0)(oxlint-tsgolint@7.0.2004)(oxlint@1.88.0(oxlint-tsgolint@7.0.2004))':
     dependencies:
@@ -2558,8 +2547,6 @@ snapshots:
   tinypool@2.2.0: {}
 
   toad-cache@3.7.4: {}
-
-  typebox@1.3.37: {}
 
   typescript@7.0.2:
     optionalDependencies:

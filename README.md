@@ -32,6 +32,11 @@ Oxforge supplies the shared Oxlint and Oxfmt policies. Husky runs lint-staged,
 type checking, and tests before commits. GitHub Actions runs the Vitest suite, type checking,
 linting, and formatting checks.
 
+`@aranlucas/kit-skills` supplies the local development skills. `pnpm install`
+links the approved package version into `.agents/skills` and `.claude/skills`;
+pnpm ignores its generated links in Git. When upgrading the package, review and
+update its exact version in `permissions` in `pnpm-workspace.yaml` as well.
+
 ## Agent structure
 
 The layout follows the
