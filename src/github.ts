@@ -60,7 +60,7 @@ export interface Snapshot {
 export interface GitHub {
   snapshot(target: Target): Promise<Snapshot>;
   prsForCommit(repository: string, sha: string): Promise<number[]>;
-  postHold(target: Target, sha: string, reason: string, risks: readonly string[]): Promise<void>;
+  postComment(target: Target, sha: string, body: string): Promise<void>;
   merge(
     target: Target,
     sha: string,
@@ -74,10 +74,6 @@ function repoArgs(repository: string) {
   const [owner, repo] = repository.split("/");
 
   return { owner, repo };
-}
-
-function quote(text: string): string {
-  return `> ${text.replaceAll("\r", "").replaceAll("\n", "\n> ")}`;
 }
 
 export function createGitHub(options?: GitHubOptions): GitHub {
@@ -213,17 +209,11 @@ export function createGitHub(options?: GitHubOptions): GitHub {
         })),
       };
     },
-    async postHold(target, sha, reason, risks) {
+    async postComment(target, sha, review) {
       const args = repoArgs(target.repository);
-      const marker = `<!-- pr-bot:hold:${sha} -->`;
+      const marker = `<!-- pr-bot:review:${sha} -->`;
       const login = `${options?.appSlug ?? required("GITHUB_APP_SLUG")}[bot]`;
-
-      const body = [
-        marker,
-        `**Review held** for commit \`${sha}\`. No merge was attempted.`,
-        `**Reason and blockers:**\n\n${quote(reason)}`,
-        ...(risks.length ? [`**Reported risks:**\n\n${risks.map(quote).join("\n\n")}`] : []),
-      ].join("\n\n");
+      const body = `${marker}\n\n**Automated review** of commit \`${sha}\`.\n\n${review}`;
 
       const comments = await api.paginate(api.issues.listComments, {
         ...args,

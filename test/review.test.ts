@@ -1,26 +1,11 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { blockers, reviewPullRequest, type Decision } from "@/review";
-import type { Config } from "@/config";
-import type { GitHub, Snapshot, Target } from "@/github";
+import { prepareReview, postComment, mergePullRequest, verifiedTarget } from "@/review";
+import type { ReviewDependencies } from "@/review";
+import type { Snapshot, Target } from "@/github";
 import type { Store } from "@/store";
 
-const target: Target = {
-  repository: "acme/app",
-  number: 42,
-  installationId: 99,
-  delivery: "delivery-1",
-};
-
-const policy: Config = {
-  repositories: new Set(["acme/app"]),
-  baseBranch: "main",
-  requiredChecks: ["test"],
-  minApprovals: 1,
-  mergeMethod: "squash",
-  dryRun: false,
-};
+const target: Target = { repository: "acme/app", number: 42, installationId: 99, delivery: "one" };
 
 const snapshot = (): Snapshot => ({
   head: "head-sha",
@@ -43,24 +28,16 @@ const snapshot = (): Snapshot => ({
   files: [{ path: "src/app.ts", status: "modified", patch: "@@ -1 +1 @@\n-old\n+new" }],
 });
 
-const approval: Decision = {
-  decision: "merge",
-  reason: "Change and tests address the edge case",
-  risks: [],
-};
-
-interface FixtureOptions {
-  readonly fresh?: Snapshot;
-  readonly decision?: Decision;
-  readonly dryRun?: boolean;
-}
-
-function fixture(pr = snapshot(), options: FixtureOptions = {}) {
+function fixture() {
   const data = new Map<string, unknown>();
+  let pr = snapshot();
+  let failComment = false;
+  const comments: string[] = [];
+  const merges: string[] = [];
 
   const store: Store = {
     get<T>(key: string) {
-      // SAFETY: The fake stores values under the same typed keys that the tested caller reads.
+      // SAFETY: Values are read with the same types as the production keys that wrote them.
       return Promise.resolve((data.get(key) as T) ?? null);
     },
     set(key, value) {
@@ -86,312 +63,253 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
     },
   };
 
-  let snapshots = 0;
-  let merges = 0;
-  let assessments = 0;
-  const holds: string[] = [];
-
-  const github: GitHub = {
-    snapshot() {
-      return Promise.resolve(structuredClone(snapshots++ === 0 ? pr : (options.fresh ?? pr)));
+  const deps: ReviewDependencies = {
+    policy: {
+      repositories: new Set(["acme/app"]),
+      baseBranch: "main",
+      requiredChecks: ["test"],
+      minApprovals: 1,
+      mergeMethod: "squash",
+      dryRun: false,
     },
-    prsForCommit() {
-      return Promise.resolve([42]);
-    },
-    postHold(actual, sha, reason, risks) {
-      holds.push(JSON.stringify({ target: actual, sha, reason, risks }));
+    store,
+    github: {
+      snapshot: () => Promise.resolve(pr),
+      prsForCommit: () => Promise.resolve([]),
+      async merge(actual, sha, method, reason, beforeMerge) {
+        assert.deepEqual(actual, target);
+        assert.equal(sha, pr.head);
+        assert.equal(method, "squash");
+        await beforeMerge?.();
+        merges.push(reason);
 
-      return Promise.resolve();
-    },
-    merge(actual, sha, method, reason) {
-      assert.deepEqual(actual, target);
-      assert.equal(sha, pr.head);
-      assert.equal(method, "squash");
-      assert.equal(reason, (options.decision ?? approval).reason);
-      merges++;
+        return { merged: true, message: "Merged" };
+      },
+      postComment(actual, sha, body) {
+        assert.deepEqual(actual, target);
+        assert.equal(sha, pr.head);
 
-      return Promise.resolve({ merged: true, sha, message: "Merged" });
+        if (failComment) {
+          return Promise.reject(new Error("Comment failed"));
+        }
+
+        comments.push(body);
+
+        return Promise.resolve();
+      },
     },
   };
 
   return {
-    deps: {
-      github,
-      store,
-      policy: { ...policy, dryRun: options.dryRun ?? false },
-      assess() {
-        assessments++;
-
-        return Promise.resolve(options.decision ?? approval);
-      },
-    },
-    holds,
-    counts: () => ({ snapshots, merges, assessments }),
+    deps,
     data,
+    comments,
+    merges,
+    change: (patch: Partial<Snapshot>) => {
+      pr = { ...pr, ...patch };
+    },
+    fail: (value: boolean) => {
+      failComment = value;
+    },
+    prepare() {
+      return prepareReview(target, deps);
+    },
   };
 }
 
-await test("merges eligible PR with the exact reviewed head SHA", async () => {
+await test("the main agent receives the diff and can post its own review", async () => {
   const f = fixture();
-  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
-  assert.deepEqual(f.counts(), { snapshots: 2, merges: 1, assessments: 1 });
-});
+  const context = await f.prepare();
+  assert.deepEqual(context.files, snapshot().files);
 
-await test("duplicate delivery returns cached result without repeating review or merge", async () => {
-  const f = fixture();
-  const first = await reviewPullRequest(target, f.deps);
-  assert.deepEqual(await reviewPullRequest(target, f.deps), first);
-  assert.equal(f.counts().merges, 1);
-  assert.equal(f.counts().assessments, 1);
-});
-
-await test("decisions cached before the review instructions changed are reassessed", async () => {
-  const pr = snapshot();
-  const f = fixture(pr);
-
-  const oldInput = JSON.stringify({
-    head: pr.head,
-    base: pr.base,
-    title: pr.title,
-    body: pr.body,
-    files: pr.files,
-  });
-
-  const oldHash = createHash("sha256").update(oldInput).digest("hex");
-
-  f.data.set(`pr-bot:review:${target.repository}:${target.number}:${oldHash}`, {
-    decision: "hold",
-    reason: "Generic tradeoff",
-    risks: ["Automated merging relies on CI and model review"],
-  });
-
-  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
-  assert.equal(f.counts().assessments, 1);
-});
-
-await Promise.all(
-  Object.entries<Partial<Snapshot>>({
-    draft: { draft: true },
-    closed: { state: "closed" },
-    merged: { merged: true },
-    branch: { baseBranch: "release" },
-    approvals: { approvals: [] },
-    "changes requested": { changesRequested: true },
-    missingCI: { checks: [] },
-    failingCI: { checks: [{ name: "test", success: false }] },
-    unknownMergeability: { mergeable: null },
-    blocked: { mergeableState: "blocked" },
-    behind: { mergeableState: "behind" },
-    truncatedDiff: { completeDiff: false },
-    emptyDiff: { files: [] },
-  }).map(async ([name, change]) => {
-    await test(`holds ${name} without merging`, async () => {
-      const f = fixture({ ...snapshot(), ...change });
-      assert.equal((await reviewPullRequest(target, f.deps)).outcome, "held");
-      assert.equal(
-        f.counts().assessments,
-        ["closed", "merged", "truncatedDiff", "emptyDiff"].includes(name) ? 0 : 1,
-      );
-      assert.equal(f.counts().merges, 0);
-    });
-  }),
-);
-
-await test("any unsuccessful optional check also blocks", () => {
-  assert.ok(
-    blockers(
-      { ...snapshot(), checks: [...snapshot().checks, { name: "lint", success: false }] },
-      policy,
-    ).length,
+  const result = await postComment(
+    target,
+    { reviewId: context.reviewId, body: "No concrete defects found." },
+    f.deps,
   );
-});
 
-await Promise.all(
-  Object.entries<Partial<Snapshot>>({
-    head: { head: "new-head" },
-    base: { base: "new-base" },
-    dismissedApproval: { approvals: [] },
-    failingCI: { checks: [{ name: "test", success: false }] },
-    editedDescription: { body: "Changed scope" },
-    changedPatch: { files: [{ path: "other", status: "added", patch: "+danger" }] },
-  }).map(async ([name, change]) => {
-    await test(`holds when ${name} changes during model review`, async () => {
-      const f = fixture(snapshot(), { fresh: { ...snapshot(), ...change } });
-      assert.equal((await reviewPullRequest(target, f.deps)).outcome, "held");
-      assert.equal(f.counts().merges, 0);
-    });
-  }),
-);
-
-await test("dry-run reports a candidate without merging", async () => {
-  const f = fixture(snapshot(), { dryRun: true });
-  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "dry-run");
-  assert.equal(f.counts().merges, 0);
+  assert.equal(result.outcome, "commented");
+  assert.deepEqual(f.comments, ["No concrete defects found."]);
 });
 
 await Promise.all(
   [
-    { ...approval, decision: "hold" as const },
-    { ...approval, risks: ["Missing test"] },
-  ].map(async (decision) => {
-    await test(`model ${JSON.stringify(decision)} prevents merge`, async () => {
-      const f = fixture(snapshot(), { decision });
-      assert.equal((await reviewPullRequest(target, f.deps)).outcome, "held");
-      assert.equal(f.counts().merges, 0);
+    { head: "new-head" },
+    { base: "new-base" },
+    { title: "Changed goal" },
+    { body: "Changed description" },
+    { files: [] },
+  ].map(async (patch) => {
+    await test(`changed review input rejects a stale comment: ${Object.keys(patch)[0]}`, async () => {
+      const f = fixture();
+      const context = await f.prepare();
+      f.change(patch);
+      await assert.rejects(
+        postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps),
+        /PR changed/,
+      );
+      assert.deepEqual(f.comments, []);
     });
   }),
 );
 
-await test("repository allowlist cannot be bypassed through tool input", async () => {
+await test("context cannot be reused for another webhook delivery", async () => {
   const f = fixture();
+  const context = await f.prepare();
   await assert.rejects(
-    reviewPullRequest({ ...target, repository: "evil/app" }, f.deps),
-    /not allowed/,
-  );
-  assert.equal(f.counts().snapshots, 0);
-});
-
-await test("concurrent evaluation cannot acquire the same PR lock", async () => {
-  const f = fixture();
-  f.data.set("pr-bot:lock:acme/app:42", "other-owner");
-  await assert.rejects(reviewPullRequest(target, f.deps), /already running/);
-  assert.equal(f.counts().merges, 0);
-});
-
-await test("lost lease prevents merge", async () => {
-  const f = fixture();
-  f.deps.assess = () => {
-    f.data.set("pr-bot:lock:acme/app:42", "new-owner");
-
-    return Promise.resolve(approval);
-  };
-
-  await assert.rejects(reviewPullRequest(target, f.deps), /lock expired/);
-  assert.equal(f.counts().merges, 0);
-  assert.equal(f.data.get("pr-bot:lock:acme/app:42"), "new-owner");
-});
-
-await test("model failure releases lock and leaves delivery retryable", async () => {
-  const f = fixture();
-  f.deps.assess = () => {
-    return Promise.reject(new Error("provider unavailable"));
-  };
-
-  await assert.rejects(reviewPullRequest(target, f.deps), /provider unavailable/);
-  assert.equal(f.data.size, 0);
-  assert.equal(f.counts().merges, 0);
-});
-
-await test("malformed model output cannot authorize a merge", async () => {
-  const f = fixture();
-  // SAFETY: Intentionally invalid provider output exercises runtime schema validation.
-  f.deps.assess = () => Promise.resolve(JSON.parse('{"decision":"merge"}') as Decision);
-  await assert.rejects(reviewPullRequest(target, f.deps));
-  assert.equal(f.counts().merges, 0);
-});
-
-await test("unlabeled PRs are reviewed and may merge when all other gates pass", async () => {
-  const f = fixture({ ...snapshot(), labels: [] });
-  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
-  assert.equal(f.counts().assessments, 1);
-});
-
-await test("owner wildcard permits the owner without admitting a similarly named account", async () => {
-  const f = fixture();
-  f.deps.policy = { ...policy, repositories: new Set(["acme/*"]) };
-  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
-  await assert.rejects(
-    reviewPullRequest({ ...target, repository: "acme-other/app" }, f.deps),
-    /not allowed/,
-  );
-});
-
-await test("default branch policy supports repositories using master", () => {
-  const pr = { ...snapshot(), baseBranch: "master", defaultBranch: "master" };
-  assert.deepEqual(blockers(pr, { ...policy, baseBranch: "default" }), []);
-});
-
-await test("wildcard CI names still require at least one check", () => {
-  assert.ok(
-    blockers({ ...snapshot(), checks: [] }, { ...policy, requiredChecks: [] }).includes(
-      "No CI checks are present",
+    postComment(
+      { ...target, delivery: "other" },
+      { reviewId: context.reviewId, body: "Review" },
+      f.deps,
     ),
+    /context is missing/,
   );
 });
 
-await test("different webhook deliveries reuse the same code review", async () => {
-  const f = fixture(snapshot(), { dryRun: true });
-  await reviewPullRequest(target, f.deps);
-  await reviewPullRequest({ ...target, delivery: "delivery-2" }, f.deps);
-  assert.equal(f.counts().assessments, 1);
-});
-
-await test("held reviews publish policy blockers, model reason and risks", async () => {
-  const f = fixture(
-    { ...snapshot(), approvals: [] },
-    {
-      decision: {
-        decision: "hold",
-        reason: "Missing regression coverage",
-        risks: ["Unchecked input"],
-      },
-    },
+await test("closed PRs skip posting", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  f.change({ state: "closed" });
+  assert.equal(
+    (await postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps)).outcome,
+    "skipped",
   );
-
-  await reviewPullRequest(target, f.deps);
-
-  assert.equal(f.holds.length, 1);
-  assert.ok(f.holds[0].includes("Not enough current-commit approvals"));
-  assert.ok(f.holds[0].includes("Missing regression coverage"));
-  assert.ok(f.holds[0].includes("Unchecked input"));
-  assert.ok(f.holds[0].includes("head-sha"));
-  await reviewPullRequest(target, f.deps);
-
-  assert.equal(f.holds.length, 1);
+  assert.deepEqual(f.comments, []);
 });
 
-await test("incomplete open PRs explain the hold without invoking the model", async () => {
-  const f = fixture({ ...snapshot(), completeDiff: false });
-  await reviewPullRequest(target, f.deps);
-
-  assert.equal(f.holds.length, 1);
-  assert.ok(f.holds[0].includes("Diff is incomplete"));
-  assert.equal(f.counts().assessments, 0);
+await test("incomplete diffs are identified without including oversized or partial patches", async () => {
+  const f = fixture();
+  f.change({ completeDiff: false });
+  const context = await f.prepare();
+  assert.equal(context.completeDiff, false);
+  assert.deepEqual(context.files, []);
 });
 
-await test("closed PRs and eligible dry runs do not publish hold comments", async () => {
-  const closed = fixture({ ...snapshot(), state: "closed" });
-  const dry = fixture(snapshot(), { dryRun: true });
-  await reviewPullRequest(target, closed.deps);
-  await reviewPullRequest(target, dry.deps);
-  assert.equal(closed.holds.length, 0);
-  assert.equal(dry.holds.length, 0);
+await test("comment failures release the lock and remain retryable", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  const input = { reviewId: context.reviewId, body: "Review" };
+  f.fail(true);
+  await assert.rejects(postComment(target, input, f.deps), /Comment failed/);
+  f.fail(false);
+  assert.equal((await postComment(target, input, f.deps)).outcome, "commented");
 });
 
-await test("a failed hold comment leaves the delivery retryable and reuses the review", async () => {
-  const f = fixture({ ...snapshot(), draft: true });
-  const postHold = f.deps.github.postHold.bind(f.deps.github);
-  f.deps.github.postHold = () => Promise.reject(new Error("Comment failed"));
-  await assert.rejects(reviewPullRequest(target, f.deps), /Comment failed/);
-  f.deps.github.postHold = postHold;
-  await reviewPullRequest(target, f.deps);
-
-  assert.equal(f.holds.length, 1);
-  assert.equal(f.counts().assessments, 1);
+await test("concurrent posting is rejected", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  f.data.set("pr-bot:lock:acme/app:42", "other");
+  await assert.rejects(
+    postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps),
+    /already being posted/,
+  );
 });
 
-await test("zero required approvals allows an otherwise eligible PR to merge", async () => {
-  const f = fixture({ ...snapshot(), approvals: [] });
-  f.deps.policy = { ...policy, minApprovals: 0 };
-  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
-  assert.equal(f.counts().merges, 1);
+await test("untrusted principals and disallowed targets are rejected", async () => {
+  assert.throws(() => verifiedTarget(null), /Verified webhook/);
+  assert.throws(
+    () => verifiedTarget({ authenticator: "github-app", principalType: "user" }),
+    /Verified webhook/,
+  );
+  const f = fixture();
+  await assert.rejects(
+    prepareReview({ ...target, repository: "other/app" }, f.deps),
+    /not allowed/,
+  );
+  await assert.rejects(
+    postComment(
+      { ...target, repository: "other/app" },
+      { reviewId: "0".repeat(64), body: "Review" },
+      f.deps,
+    ),
+    /not allowed/,
+  );
 });
 
-await test("change requests still block when human approvals are optional", async () => {
-  const f = fixture({ ...snapshot(), approvals: [], changesRequested: true });
-  f.deps.policy = { ...policy, minApprovals: 0 };
-  const result = await reviewPullRequest(target, f.deps);
-  assert.equal(result.outcome, "held");
-  assert.ok(result.reason.includes("A reviewer has requested changes"));
-  assert.equal(f.counts().merges, 0);
+await test("merge is rejected before post-comment succeeds", async () => {
+  const f = fixture();
+  await f.prepare();
+  await assert.rejects(mergePullRequest(target, f.deps), /post-comment must succeed/);
+  assert.deepEqual(f.merges, []);
 });
+
+await test("a failed comment does not authorize merging", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  f.fail(true);
+  await assert.rejects(postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps));
+  await assert.rejects(mergePullRequest(target, f.deps), /post-comment must succeed/);
+});
+
+await test("a posted review permits merging only the reviewed content", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  await postComment(
+    target,
+    { reviewId: context.reviewId, body: "No concrete defects found." },
+    f.deps,
+  );
+  assert.equal((await mergePullRequest(target, f.deps)).outcome, "merged");
+  assert.deepEqual(f.merges, ["No concrete defects found."]);
+  f.change({ head: "new-head" });
+  await assert.rejects(mergePullRequest(target, f.deps), /PR changed since/);
+});
+
+await test("a posted review from another delivery does not authorize merging", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  await postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps);
+  await assert.rejects(
+    mergePullRequest({ ...target, delivery: "other" }, f.deps),
+    /post-comment must succeed/,
+  );
+});
+
+await test("merge rechecks CI and dry-run policy after posting", async () => {
+  const f = fixture();
+  const context = await f.prepare();
+  await postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps);
+  f.change({ checks: [{ name: "test", success: false }] });
+  assert.equal((await mergePullRequest(target, f.deps)).outcome, "held");
+  f.change({ checks: [{ name: "test", success: true }] });
+  assert.equal(
+    (await mergePullRequest(target, { ...f.deps, policy: { ...f.deps.policy, dryRun: true } }))
+      .outcome,
+    "dry-run",
+  );
+  assert.deepEqual(f.merges, []);
+});
+
+const blockedStates: readonly Partial<Snapshot>[] = [
+  { state: "closed" },
+  { merged: true },
+  { draft: true },
+  { baseBranch: "release" },
+  { mergeable: false },
+  { mergeableState: "dirty" },
+  { approvals: [] },
+  { changesRequested: true },
+  { checks: [] },
+  { checks: [{ name: "other", success: true }] },
+  { completeDiff: false },
+];
+
+await Promise.all(
+  blockedStates.map(async (patch) => {
+    await test(`posting a review does not bypass merge policy: ${Object.keys(patch)[0]}`, async () => {
+      const f = fixture();
+      const context = await f.prepare();
+      await postComment(target, { reviewId: context.reviewId, body: "Review" }, f.deps);
+      f.change(patch);
+
+      // A changed diff is rejected before policy evaluation; other blockers return held.
+      if (patch.completeDiff === false) {
+        await assert.rejects(mergePullRequest(target, f.deps), /PR changed since/);
+      } else {
+        assert.equal((await mergePullRequest(target, f.deps)).outcome, "held");
+      }
+
+      assert.deepEqual(f.merges, []);
+    });
+  }),
+);

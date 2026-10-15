@@ -127,7 +127,8 @@ export function createReviewChannel(options?: Pick<GitHubChannelConfig, "api" | 
                   installationId: event.installationId,
                   pullRequestNumber: number,
                 },
-                message: "Evaluate the verified pull request with review-pull-request.",
+                message:
+                  "Review the current verified PR context and post your findings with post-comment.",
                 auth: reviewAuth({ ...event, number, delivery }),
               },
               args,

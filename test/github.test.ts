@@ -197,7 +197,7 @@ await test("an App client requires a verified installation instead of falling ba
   assert.throws(() => createGitHub(), { message: "Verified GitHub App installation required" });
 });
 
-await test("Octokit exchanges the selected installation for a token before merging the exact SHA", async () => {
+await test("Octokit exchanges the selected installation for a token when posting the review", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const calls: string[] = [];
 
@@ -225,35 +225,25 @@ await test("Octokit exchanges the selected installation for a token before mergi
       }
 
       if (url.pathname === "/repos/acme/app/issues/42/comments") {
+        assert.equal(headers.get("authorization"), "token installation-token");
         const response = Response.json(init?.method === "POST" ? { id: 123 } : []);
         Object.defineProperty(response, "url", { value: url.toString() });
 
         return Promise.resolve(response);
       }
 
-      assert.equal(url.pathname, "/repos/acme/app/pulls/42/merge");
-      assert.equal(headers.get("authorization"), "token installation-token");
-      assert.equal(init?.body, JSON.stringify({ sha: "reviewed-head", merge_method: "squash" }));
-
-      return Promise.resolve(Response.json({ merged: true, sha: "merge-sha", message: "Merged" }));
+      throw new Error(`Unexpected route ${url.pathname}`);
     },
   });
 
-  assert.equal(
-    (
-      await github.merge(
-        { ...target, installationId: 456 },
-        "reviewed-head",
-        "squash",
-        "Reviewed and tested",
-      )
-    ).merged,
-    true,
+  await github.postComment(
+    { ...target, installationId: 456 },
+    "reviewed-head",
+    "Reviewed and tested",
   );
   assert.deepEqual(calls, [
     "/app/installations/456/access_tokens",
     "/repos/acme/app/issues/42/comments",
     "/repos/acme/app/issues/42/comments",
-    "/repos/acme/app/pulls/42/merge",
   ]);
 });
