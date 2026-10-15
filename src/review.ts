@@ -150,11 +150,25 @@ async function evaluate(
     return { outcome: "dry-run", reason: decision.reason, head: pr.head, decision };
   }
 
-  if ((await store.get<string>(lockKey)) !== token) {
+  const leaseValid = (await store.get<string>(lockKey)) === token;
+
+  if (!leaseValid) {
     throw new Error("PR lock expired");
   }
 
-  const merged = await github.merge(target, pr.head, policy.mergeMethod);
+  const merged = await github.merge(
+    target,
+    pr.head,
+    policy.mergeMethod,
+    decision.reason,
+    async () => {
+      const lockOwned = (await store.get<string>(lockKey)) === token;
+
+      if (!lockOwned) {
+        throw new Error("PR lock expired while posting the merge explanation");
+      }
+    },
+  );
 
   return {
     outcome: merged.merged ? "merged" : "held",
@@ -191,7 +205,9 @@ export async function reviewPullRequest(
   const lockKey = `pr-bot:lock:${target.repository}:${target.number}`;
   const token = randomUUID();
 
-  if (!(await store.claim(lockKey, token, 600))) {
+  const claimed = await store.claim(lockKey, token, 600);
+
+  if (!claimed) {
     throw new Error("PR evaluation already running; retry delivery");
   }
 

@@ -96,10 +96,11 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
     prsForCommit() {
       return Promise.resolve([42]);
     },
-    merge(actual, sha, method) {
+    merge(actual, sha, method, reason) {
       assert.deepEqual(actual, target);
       assert.equal(sha, pr.head);
       assert.equal(method, "squash");
+      assert.equal(reason, (options.decision ?? approval).reason);
       merges++;
 
       return Promise.resolve({ merged: true, sha, message: "Merged" });

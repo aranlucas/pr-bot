@@ -33,6 +33,7 @@ export interface GitHubOptions {
   readonly installationId?: number;
   readonly appId?: string;
   readonly privateKey?: string;
+  readonly appSlug?: string;
 }
 
 export interface Snapshot {
@@ -59,7 +60,13 @@ export interface Snapshot {
 export interface GitHub {
   snapshot(target: Target): Promise<Snapshot>;
   prsForCommit(repository: string, sha: string): Promise<number[]>;
-  merge(target: Target, sha: string, method: "merge" | "squash" | "rebase"): Promise<MergeResult>;
+  merge(
+    target: Target,
+    sha: string,
+    method: "merge" | "squash" | "rebase",
+    reason: string,
+    beforeMerge?: () => Promise<void>,
+  ): Promise<MergeResult>;
 }
 
 function repoArgs(repository: string) {
@@ -201,15 +208,60 @@ export function createGitHub(options?: GitHubOptions): GitHub {
         })),
       };
     },
-    async merge(target, sha, merge_method) {
-      return (
-        await api.pulls.merge({
-          ...repoArgs(target.repository),
-          pull_number: target.number,
-          sha,
-          merge_method,
-        })
-      ).data;
+    async merge(target, sha, merge_method, reason, beforeMerge) {
+      const args = repoArgs(target.repository);
+      const marker = `<!-- pr-bot:merge:${sha} -->`;
+      const login = `${options?.appSlug ?? required("GITHUB_APP_SLUG")}[bot]`;
+
+      const body = [
+        marker,
+        `I'm attempting to merge commit \`${sha}\` using \`${merge_method}\`.`,
+        `**Review reason:**\n\n> ${reason.replaceAll("\r", "").replaceAll("\n", "\n> ")}`,
+        "The PR passed the configured review, approval, CI, base-branch, and mergeability checks. The merge request is pinned to the commit above.",
+      ].join("\n\n");
+
+      const comments = await api.paginate(api.issues.listComments, {
+        ...args,
+        issue_number: target.number,
+        per_page: 100,
+      });
+
+      const previous = comments.find(
+        (comment) =>
+          comment.user?.type === "Bot" &&
+          comment.user.login === login &&
+          comment.body?.startsWith(marker),
+      );
+
+      const { data: comment } = previous
+        ? await api.issues.updateComment({ ...args, comment_id: previous.id, body })
+        : await api.issues.createComment({ ...args, issue_number: target.number, body });
+
+      let result;
+
+      try {
+        await beforeMerge?.();
+        result = (await api.pulls.merge({ ...args, pull_number: target.number, sha, merge_method }))
+          .data;
+      } catch (error) {
+        await api.issues.updateComment({
+          ...args,
+          comment_id: comment.id,
+          body: `${body}\n\n**Merge stopped or unconfirmed.** A fresh evaluation is required.`,
+        });
+
+        throw error;
+      }
+
+      if (!result.merged) {
+        await api.issues.updateComment({
+          ...args,
+          comment_id: comment.id,
+          body: `${body}\n\n**Not merged.** ${result.message}`,
+        });
+      }
+
+      return result;
     },
   };
 }

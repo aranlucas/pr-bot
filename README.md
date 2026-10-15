@@ -113,6 +113,11 @@ verifies lock ownership, and merges with the exact reviewed head SHA. Provider
 errors, malformed decisions, stale state, or Redis failure prevent merging.
 Model judgment can be wrong; it does not replace GitHub policy or human approvals.
 
+Before an actual merge, the bot posts the reviewed commit, merge method, model
+reason, and passed policy checks as a PR comment. Retries reuse the App's comment
+for the same commit. If posting fails, the bot does not merge; if GitHub rejects
+the merge, the comment is updated. Dry runs do not post merge announcements.
+
 The tool writes structured `pr-review` logs and retains delivery results and
 review decisions in Redis for seven days. Eve's built-in channel can post framework failure messages to PR threads. The
 review tool's structured result remains in logs and Redis. Correct processing
@@ -156,6 +161,8 @@ a structured OpenRouter review. The bot correctly held it for draft status,
 missing approval, and unsuccessful checks. The test PR was closed and its branch
 removed. Local checks include 60 tests and an Eve production build.
 
-Actual merging remains disabled with `DRY_RUN=true`. Enable it by setting
-`DRY_RUN=false` in Vercel Production and redeploying after reviewing the results.
-Enable or pause App delivery through the GitHub App's webhook settings.
+`DRY_RUN=false` is configured in Vercel Production. The activation deployment
+was blocked by Vercel's daily deployment limit, so the last successful deployment
+still runs in dry-run mode. Deploy this release to activate merging and its
+explanation comments. Enable or pause App delivery through the GitHub App's
+webhook settings.

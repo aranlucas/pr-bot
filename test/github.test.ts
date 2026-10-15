@@ -203,6 +203,7 @@ await test("Octokit exchanges the selected installation for a token before mergi
 
   const github = createGitHub({
     appId: "123",
+    appSlug: "pr-bot",
     installationId: 456,
     privateKey: privateKey.export({ type: "pkcs8", format: "pem" }),
     fetch: (input, init) => {
@@ -223,6 +224,13 @@ await test("Octokit exchanges the selected installation for a token before mergi
         );
       }
 
+      if (url.pathname === "/repos/acme/app/issues/42/comments") {
+        const response = Response.json(init?.method === "POST" ? { id: 123 } : []);
+        Object.defineProperty(response, "url", { value: url.toString() });
+
+        return Promise.resolve(response);
+      }
+
       assert.equal(url.pathname, "/repos/acme/app/pulls/42/merge");
       assert.equal(headers.get("authorization"), "token installation-token");
       assert.equal(init?.body, JSON.stringify({ sha: "reviewed-head", merge_method: "squash" }));
@@ -232,11 +240,20 @@ await test("Octokit exchanges the selected installation for a token before mergi
   });
 
   assert.equal(
-    (await github.merge({ ...target, installationId: 456 }, "reviewed-head", "squash")).merged,
+    (
+      await github.merge(
+        { ...target, installationId: 456 },
+        "reviewed-head",
+        "squash",
+        "Reviewed and tested",
+      )
+    ).merged,
     true,
   );
   assert.deepEqual(calls, [
     "/app/installations/456/access_tokens",
+    "/repos/acme/app/issues/42/comments",
+    "/repos/acme/app/issues/42/comments",
     "/repos/acme/app/pulls/42/merge",
   ]);
 });
