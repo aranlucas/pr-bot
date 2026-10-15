@@ -80,10 +80,30 @@ Set these in `.env.local` locally and in the Vercel environment when hosted:
 - `FREELLM_API_BASE_URL`: the model service's OpenAI-compatible `/v1` endpoint.
 - `FREELLM_MODEL`: model ID; defaults to `auto`.
 
-Model requests identify themselves as `pr-bot (Eve agent; OpenAI-compatible)`
-in the `User-Agent` header, followed by the SDK's diagnostics. FreeLLMAPI's
-Recent calls table shows `pr-bot`; its agent chart groups these requests under
-`openai-sdk`, since it has no dedicated PR Bot category.
+Model requests send PR Bot's identity on streaming requests and every tool-loop
+step:
+
+- `User-Agent`: `pr-bot (Eve agent; OpenAI-compatible)` when the SDK retains it.
+- `HTTP-Referer`: `https://github.com/aranlucas/pr-bot`, the stable app URL.
+- `X-OpenRouter-Title` and legacy `X-Title`: `PR Bot`.
+
+All headers use the provider's `headers` field. The SDK can replace `User-Agent`,
+including during tool loops; the attribution headers remain available.
+
+[OpenRouter app attribution](https://openrouter.ai/docs/app-attribution) requires
+the app URL and uses the title as its display name; `User-Agent` alone does not
+attribute usage.
+These headers work when calling OpenRouter directly through the configured
+OpenAI-compatible endpoint. When routing through FreeLLMAPI, its proxy must
+preserve the attribution headers for OpenRouter to credit PR Bot. The
+[upstream OpenRouter adapter](https://github.com/tashfeenahmed/freellmapi/blob/main/server/src/providers/index.ts)
+currently supplies its own `FreeLLMAPI` title and localhost referer, so changing
+this app alone cannot fix attribution beyond that proxy.
+
+FreeLLMAPI's Recent calls table and agent chart use the user agent that reaches
+the proxy when client logging is enabled. If the SDK replaces it, requests can
+appear under an SDK identity or `unknown`. The upstream classifier has no
+dedicated PR Bot category.
 
 The channel stores the webhook's installation ID in Eve session state at the
 start of each turn. The extension's token provider uses that ID to mint a
