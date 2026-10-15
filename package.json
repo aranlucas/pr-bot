@@ -5,7 +5,7 @@
   "type": "module",
   "description": "An Eve agent that reviews GitHub PRs through OpenRouter and merges eligible changes",
   "engines": {
-    "node": ">=24"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "eve dev",

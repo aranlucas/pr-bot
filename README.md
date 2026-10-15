@@ -6,6 +6,9 @@ A [Vercel Eve](https://eve.dev/docs) agent that receives GitHub webhooks, review
 pull request changes through [OpenRouter](https://openrouter.ai/docs/quickstart),
 and automatically merges eligible PRs. It starts in **dry-run mode**.
 
+Production endpoint: [pr-bot-kohl.vercel.app](https://pr-bot-kohl.vercel.app/eve/v1/health).
+The connected repository is [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
+
 ## Run locally
 
 Requires Node.js 24+, npm, and Docker for Eve's default local sandbox template.
@@ -38,7 +41,9 @@ hosting:
 - `GITHUB_REPOSITORIES`: comma-separated exact `owner/repo` allowlist.
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`: a Redis database for
   locks and completed delivery results. Use separate databases for separate
-  environments. Redis failure prevents merging.
+  environments. The Vercel Upstash integration can supply `KV_REST_API_URL` and
+  `KV_REST_API_TOKEN` instead; the Redis SDK supports those names automatically.
+  Redis failure prevents merging.
 - `REQUIRED_CHECKS`: mandatory comma-separated check-run names or status contexts
   that must pass, e.g. `test,typecheck`. Names must match GitHub exactly.
 - `BASE_BRANCH`: allowed target branch; defaults to `main`.
@@ -126,7 +131,10 @@ the dry-run outcome in logs / Eve Agent Runs. Then set `DRY_RUN=false`, redeploy
 and trigger a new event. A redelivery with an already completed delivery ID uses
 its cached result, including a prior dry-run result.
 
-No GitHub webhook or live deployment is created by installing this repository.
+Installing this repository alone does not create a webhook or deployment. The
+current production installation has a GitHub webhook at
+`https://pr-bot-kohl.vercel.app/webhooks/github` and a free Upstash Redis resource
+named `pr-bot-redis`.
 
 ## Verify
 
