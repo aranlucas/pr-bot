@@ -81,7 +81,7 @@ const fingerprint = (value: Snapshot) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 export async function assess(pr: Snapshot): Promise<Decision> {
-  required("OPENROUTER_API_KEY");
+  required("FREELLM_API_KEY");
 
   const result = await generateText({
     model: reviewModel,

@@ -4,7 +4,7 @@ import { reviewPullRequest } from "@/review";
 
 export default defineTool({
   description:
-    "Review and conditionally merge the PR identified by the verified webhook. Policy and independent OpenRouter review are enforced inside this tool.",
+    "Review and conditionally merge the PR identified by the verified webhook. Policy and independent FreeLLM API review are enforced inside this tool.",
   inputSchema: z.object({}),
   availableInSubagents: false,
   execute(_input, ctx) {

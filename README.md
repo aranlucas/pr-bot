@@ -3,7 +3,7 @@
 # PR Bot
 
 A [Vercel Eve](https://eve.dev/docs) agent that reviews GitHub pull requests through
-[OpenRouter's free-model router](https://openrouter.ai/openrouter/free) and merges
+[the Railway-hosted FreeLLM API](https://freellmapi-production-1175.up.railway.app) and merges
 changes that pass both the review and deterministic GitHub checks.
 
 Production health: [pr-bot-kohl.vercel.app](https://pr-bot-kohl.vercel.app/eve/v1/health).
@@ -37,13 +37,15 @@ to install Node, the pinned pnpm version, and dependencies in one step.
 
 Set variables in `.env.local` locally and the Vercel Production environment when hosted:
 
-- `OPENROUTER_API_KEY`: dedicated OpenRouter API key. PR metadata and patches are
-  sent to OpenRouter and the routed provider. Review that provider's data policy
-  before connecting repositories containing sensitive material.
-- `OPENROUTER_MODEL`: defaults to `openrouter/free`. Only that router or an explicit
-  `:free` model is accepted. Requests also cap provider prompt and completion
-  prices at zero. There is no paid-model fallback. Free-provider availability,
-  context windows, and rate limits can cause a review to fail or wait.
+- `FREELLM_API_KEY`: the unified API key from Keys → Unified API key on the
+  Railway service, stored as a Vercel Secret. PR metadata and patches are sent to
+  this service and its routed provider.
+- `FREELLM_API_BASE_URL`: defaults to
+  `https://freellmapi-production-1175.up.railway.app/v1`.
+- `FREELLM_MODEL`: defaults to `auto`, following the service's active fallback
+  chain. A named `auto:<chain>` or a model ID from the service can also be used.
+  Provider availability, context windows, and rate limits can cause reviews to
+  fail or wait. Configure provider keys and routing in the Railway service.
 - `GITHUB_APP_ID`: ID of the self-managed GitHub App (`5335315` for this installation).
 - `GITHUB_APP_PRIVATE_KEY`: PEM private key, stored as a Vercel Secret. Eve and
   Octokit obtain short-lived installation tokens; personal access tokens are not used.
@@ -157,7 +159,7 @@ and the old bot PAT was revoked and removed from Vercel.
 
 Production health and unsigned-request rejection passed. A temporary draft PR
 verified actual GitHub delivery, Eve dispatch, installation authentication, and
-a structured OpenRouter review. The bot correctly held it for draft status,
+a structured model review (using OpenRouter at the time). The bot correctly held it for draft status,
 missing approval, and unsuccessful checks. The test PR was closed and its branch
 removed. Local checks include 60 tests and an Eve production build.
 
