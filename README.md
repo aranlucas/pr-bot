@@ -3,7 +3,8 @@
 # PR Bot
 
 A [Vercel Eve](https://eve.dev/docs) agent that reviews GitHub pull requests and
-merges changes that pass both the review and deterministic GitHub checks.
+posts its findings before merging eligible changes. The main agent performs the
+review directly; there is no nested model call.
 
 Source: [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
 
@@ -60,10 +61,6 @@ Vercel Secrets. PR metadata and patches are sent to the configured review servic
   The Vercel integration instead injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`,
   which the SDK also accepts. Use separate databases for separate environments.
 
-Protect merge targets in GitHub with required CI, current reviews, resolved
-conversations, and up-to-date branches. GitHub enforces its own repository rules;
-the bot should not be exempt from them.
-
 ## Webhooks and review behavior
 
 Register a self-managed GitHub App with Contents and Pull requests read/write,
@@ -79,11 +76,10 @@ repository allowlist still limits which installations can start reviews. No
 Vercel Connect connector, quota, or provider token exchange is involved.
 
 Every inspectable open PR is reviewed automatically; **no label is required**.
-Draft PRs and PRs waiting on CI or approval still get a model review, while the
-merge gates hold them. Closed PRs, incomplete or binary diffs, empty diffs, over
-100 changed files, and patches exceeding 120,000 characters are held without an
-incomplete model review. A changed code-review input triggers a new review;
-repeated CI/review events reuse a cached decision for the same input.
+Draft PRs and PRs waiting on CI or approval also receive a review. Closed PRs
+receive no comment. Incomplete or binary diffs, empty diffs, over 100 changed
+files, and patches exceeding 120,000 characters are identified as review
+limitations; the agent does not claim a complete review of those changes.
 
 Eve's built-in GitHub channel verifies and dispatches PR events. A supplemental
 adapter handles approval/status events, all check-associated PRs, and commit
@@ -92,45 +88,47 @@ parsing and routes through the built-in channel's receive hook. Both paths bind
 the verified installation and PR to a service principal; the tool cannot select
 another target. Vercel enforces the request-body size limit. Events queue per PR.
 
-Webhook acknowledgement means received or queued, not reviewed or merged. Eve's
+Webhook acknowledgement means received or queued, not reviewed or commented. Eve's
 native PR path acknowledges background dispatch with `200`; the supplemental
 path waits for durable acceptance and returns `202`. Check Eve runs and server
 logs for processing errors before redelivering an event.
 
-`review-pull-request` takes no model-supplied target. It uses the verified webhook
-principal, acquires a per-PR Redis lock, and fetches current GitHub state. The
-review model has no tools. The outer Eve agent has only this guarded tool;
-shell, filesystem, browsing, and delegation tools are disabled.
+Before each turn, dynamic instructions fetch current PR metadata and patches
+using the verified webhook principal and supply them to the main agent. The
+agent reviews the changes itself and calls `post-comment` with the current
+context's `reviewId` and its Markdown review. It can then call `merge` if the
+review found no material unresolved defects or limitations. Shell, filesystem,
+browsing, and delegation tools are disabled. Repository text is untrusted data.
+The review focuses on concrete defects introduced by the change, with patch
+evidence and consequences, rather than general objections to the stated goal.
 
-A merge additionally requires an open non-draft PR, allowed base branch, clean
-GitHub merge state, any configured approval count, no change requests, successful CI, and a
-model decision with no reported risks. The tool refetches and compares state,
-verifies lock ownership, and merges with the exact reviewed head SHA. Provider
-errors, malformed decisions, stale state, or Redis failure prevent merging.
-Model judgment can be wrong; it does not replace GitHub policy or human approvals.
+`post-comment` takes no model-supplied repository or PR number. It checks the
+repository allowlist, acquires a per-PR Redis lock, validates the review ID
+against the context stored for that delivery, and refetches the PR. Changed
+review inputs reject the comment; a new webhook turn is needed for a fresh
+review. A PR that closed during review is skipped. The final GitHub read and
+comment write are separate requests, so the comment always names the reviewed
+commit even if a push races the write.
 
-Before an actual merge, the bot posts the reviewed commit, merge method, model
-reason, and passed policy checks as a PR comment. Retries reuse the App's comment
-for the same commit. If posting fails, the bot does not merge; if GitHub rejects
-the merge, the comment is updated. Dry runs do not post merge announcements.
+Retries reuse only this App's review comment for the same commit. Existing
+comments are updated only when their content changes. Repeated CI/review events
+start a fresh main-agent review rather than reusing a separate model decision.
+Comment failures remain retryable. Context fingerprints are retained in Redis
+for seven days. Eve may also post framework failure messages to PR threads;
+check Eve runs and server logs before redelivering failed events.
 
-When an open PR is held, the bot posts the reviewed commit, hold reason, policy
-blockers, and reported risks as a PR comment. Later evaluations update the App's
-comment for that commit only when its content changes. Comment failures leave the
-delivery retryable; closed PRs receive no hold comment. Holds are also reported
-in dry-run mode.
+The `merge` tool requires a stored receipt from a successful `post-comment`
+call for the same webhook delivery. A model assertion that it posted a comment
+is insufficient. It refetches the PR and checks that the reviewed content is
+unchanged, then enforces the existing branch, draft, CI, approval, change request,
+and mergeability policy. Actual merges are pinned to the reviewed head SHA and
+require a valid lock. `DRY_RUN=true` reports eligibility without merging. Before
+an actual merge, the bot also posts an idempotent merge explanation; a failed
+explanation prevents merging. GitHub branch protection still applies.
 
-The tool writes structured `pr-review` logs and retains delivery results and
-review decisions in Redis for seven days. Eve's built-in channel can post framework failure messages to PR threads. The
-review tool's structured result remains in logs and Redis. Correct processing
-errors and redeliver the webhook; failures after acknowledgement are not
-reported through the original HTTP response.
-
-The production installation uses the free Upstash resource `pr-bot-redis`.
-The App is installed with **All repositories** on `aranlucas` and `sidequest-labs`.
-Each review uses the installation ID from its authenticated event, so personal
-and organization tokens are kept separate. A crash after merging cannot merge
-that same PR twice: a retry sees it is already merged.
+The main agent uses the configured FreeLLM API model. Metadata and patches are
+sent to that provider as part of its normal turn. Model judgment can be wrong;
+posting a comment proves that the review was published, not that it is correct.
 
 ## Deployment
 
@@ -145,26 +143,13 @@ command and Node.js 24. The standalone agent needs no frontend or service graph.
 If Deployment Protection applies, configure GitHub webhook access while retaining
 HMAC verification.
 
-Verify a signed GitHub ping and a draft PR review before enabling actual merges.
+Verify a signed GitHub ping and a draft PR review after deployment.
 GitHub-hosted CI also requires an account with working Actions billing/capacity;
 account billing failures are independent of local test results.
 
-## Production verification
+## Deployment verification
 
-The self-managed App is installed on all 54 personal repositories and all 11
-`sidequest-labs` repositories, including future repositories in both accounts.
-The Production deployment uses `/eve/v1/github` directly; the unused Vercel
-Connect connector was removed. The 65 legacy repository webhooks were deleted,
-and the old bot PAT was revoked and removed from Vercel.
-
-Production health and unsigned-request rejection passed. A temporary draft PR
-verified actual GitHub delivery, Eve dispatch, installation authentication, and
-a structured model review. The bot correctly held it for draft status,
-missing approval, and unsuccessful checks. The test PR was closed and its branch
-removed. Local checks include 60 tests and an Eve production build.
-
-`DRY_RUN=false` is configured in Vercel Production. The activation deployment
-was blocked by Vercel's daily deployment limit, so the last successful deployment
-still runs in dry-run mode. Deploy this release to activate merging and its
-explanation comments. Enable or pause App delivery through the GitHub App's
-webhook settings.
+Local checks cover authenticated webhook dispatch, review context binding,
+stale-review rejection, installation authentication, idempotent review
+comments, and the post-before-merge guard. Run `pnpm check` and `pnpm build` before deployment. This change does
+not update the live deployment or GitHub App permissions.
