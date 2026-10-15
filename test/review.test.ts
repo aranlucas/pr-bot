@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { blockers, reviewPullRequest, type Decision } from "@/review";
 import type { Config } from "@/config";
@@ -141,6 +142,30 @@ await test("duplicate delivery returns cached result without repeating review or
   const first = await reviewPullRequest(target, f.deps);
   assert.deepEqual(await reviewPullRequest(target, f.deps), first);
   assert.equal(f.counts().merges, 1);
+  assert.equal(f.counts().assessments, 1);
+});
+
+await test("decisions cached before the review instructions changed are reassessed", async () => {
+  const pr = snapshot();
+  const f = fixture(pr);
+
+  const oldInput = JSON.stringify({
+    head: pr.head,
+    base: pr.base,
+    title: pr.title,
+    body: pr.body,
+    files: pr.files,
+  });
+
+  const oldHash = createHash("sha256").update(oldInput).digest("hex");
+
+  f.data.set(`pr-bot:review:${target.repository}:${target.number}:${oldHash}`, {
+    decision: "hold",
+    reason: "Generic tradeoff",
+    risks: ["Automated merging relies on CI and model review"],
+  });
+
+  assert.equal((await reviewPullRequest(target, f.deps)).outcome, "merged");
   assert.equal(f.counts().assessments, 1);
 });
 
