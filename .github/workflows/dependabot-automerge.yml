@@ -1,0 +1,89 @@
+name: Dependabot auto-merge
+
+# Trusted default-branch code only; no PR checkout, artifacts, or dependency install.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-automerge-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      github.repository == 'aranlucas/pr-bot' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # Inspect the latest CI run for the tested head commit.
+      contents: write # Squash merge with an atomic head-SHA precondition.
+      pull-requests: write # Merge the verified Dependabot pull request.
+    steps:
+      # No checkout: this privileged job only reads GitHub metadata and merges.
+      - name: Verify Dependabot identity and tested commit before squash merging
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const repo = context.repo;
+            const bot = "dependabot[bot]";
+            const fullName = `${repo.owner}/${repo.repo}`;
+            if (run.event !== "pull_request" || run.conclusion !== "success" ||
+                run.actor?.login !== bot || run.head_repository?.full_name !== fullName) {
+              return core.info("Not a successful same-repository Dependabot PR run.");
+            }
+            const { data: candidates } = await github.rest.pulls.list({
+              ...repo, state: "open", base: "main",
+              head: `${repo.owner}:${run.head_branch}`, per_page: 100,
+            });
+            const matches = candidates.filter(pr => pr.user?.login === bot &&
+              pr.head.repo?.full_name === fullName && pr.head.sha === run.head_sha);
+            if (matches.length !== 1) {
+              return core.info("No unique open Dependabot PR at the tested commit.");
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              ...repo, pull_number: matches[0].number,
+            });
+            if (pr.state !== "open" || pr.draft || pr.user?.login !== bot ||
+                pr.base.ref !== "main" || pr.head.repo?.full_name !== fullName ||
+                pr.head.sha !== run.head_sha || pr.commits < 1 || pr.commits > 100) {
+              return core.info("PR identity, head, or bounded commit count is ineligible.");
+            }
+            // Inspect the latest run, so an older successful run cannot hide a rerun.
+            for (const workflow of ["ci.yml"]) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...repo, workflow_id: workflow, event: "pull_request",
+                branch: run.head_branch, head_sha: run.head_sha, per_page: 1,
+              });
+              const latest = data.workflow_runs[0];
+              if (!latest || latest.head_sha !== run.head_sha ||
+                  latest.head_repository?.full_name !== fullName ||
+                  latest.status !== "completed" || latest.conclusion !== "success") {
+                return core.info(`Waiting for a successful latest ${workflow} run at this commit.`);
+              }
+            }
+            // Reject branches containing human-authored or human-committed additions.
+            const { data: commits } = await github.rest.pulls.listCommits({
+              ...repo, pull_number: pr.number, per_page: 100,
+            });
+            if (commits.length !== pr.commits ||
+                commits.at(-1)?.sha !== run.head_sha ||
+                !commits.every(commit => commit.author?.login === bot &&
+                  commit.committer?.login === bot)) {
+              return core.info("Every PR commit must be authored and committed by Dependabot.");
+            }
+            const { data: merged } = await github.rest.pulls.merge({
+              ...repo, pull_number: pr.number,
+              sha: run.head_sha, merge_method: "squash",
+            });
+            if (!merged.merged) {
+              core.setFailed("GitHub did not merge the eligible Dependabot PR.");
+            }
