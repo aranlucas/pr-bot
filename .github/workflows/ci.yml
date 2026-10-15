@@ -9,19 +9,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/setup@v3
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm test
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - run: pnpm test
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/setup@v3
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - run: pnpm typecheck
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - run: pnpm lint
+      - run: pnpm format:check

@@ -2,17 +2,20 @@
   "name": "pr-bot",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "description": "An Eve agent that reviews GitHub PRs through OpenRouter and merges eligible changes",
-  "engines": {
-    "node": "24.x"
-  },
+  "type": "module",
   "scripts": {
     "dev": "eve dev",
     "build": "eve build",
     "start": "eve start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "prepare": "husky",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt --write",
+    "format:check": "oxfmt --check",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.69",
@@ -23,8 +26,27 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@aranlucas/oxforge": "^0.2.0",
     "@types/node": "^26.6.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
+    "oxlint-tsgolint": "^7.0.2004",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
-  }
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
+      "oxlint --fix",
+      "oxfmt --write --no-error-on-unmatched-pattern"
+    ],
+    "*.{json,jsonc,json5,css,scss,md,mdx,yml,yaml,html,toml}": [
+      "oxfmt --write --no-error-on-unmatched-pattern"
+    ]
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "packageManager": "pnpm@12.4.2"
 }

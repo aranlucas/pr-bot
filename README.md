@@ -2,150 +2,128 @@
 
 # PR Bot
 
-A [Vercel Eve](https://eve.dev/docs) agent that receives GitHub webhooks, reviews
-pull request changes through [OpenRouter](https://openrouter.ai/docs/quickstart),
-and automatically merges eligible PRs. It starts in **dry-run mode**.
+A [Vercel Eve](https://eve.dev/docs) agent that reviews GitHub pull requests through
+[OpenRouter's free-model router](https://openrouter.ai/openrouter/free) and merges
+changes that pass both the review and deterministic GitHub checks.
 
-Production endpoint: [pr-bot-kohl.vercel.app](https://pr-bot-kohl.vercel.app/eve/v1/health).
-The connected repository is [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
+Production health: [pr-bot-kohl.vercel.app](https://pr-bot-kohl.vercel.app/eve/v1/health).
+Source: [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
 
-## Run locally
+## Development
 
-Requires Node.js 24+, npm, and Docker for Eve's default local sandbox template.
+Requires Node.js 24, pnpm 12, and Docker for Eve's default local sandbox template.
 
 ```sh
-npm ci
+pnpm install --frozen-lockfile
 cp .env.example .env.local
-# Fill in .env.local, including the exact repository and CI check names.
-npm run dev
+# Fill in credentials and repository settings.
+pnpm dev
 ```
 
-Eve loads `.env.local` for development. Point a public HTTPS tunnel at the local
-Eve server (port 2000 by default), then configure the GitHub webhook below.
-Interactive Eve sessions are disabled: webhook service principals are the only
-callers allowed to run the review tool.
+Eve loads `.env.local` in development and listens on port 2000 by default.
+Interactive sessions are disabled; signed webhook service principals start reviews.
+
+```sh
+pnpm check
+pnpm build
+```
+
+Oxforge supplies the shared type-aware Oxlint and Oxfmt policies. Use `pnpm lint`,
+`pnpm lint:fix`, `pnpm format`, and `pnpm format:check`. Husky runs lint-staged,
+type checking, and tests before each commit. GitHub Actions uses `pnpm/setup@v3`
+to install Node, the pinned pnpm version, and dependencies in one step.
 
 ## Configuration
 
-Set these in `.env.local` locally and in your Vercel project's environment when
-hosting:
+Set variables in `.env.local` locally and the Vercel Production environment when hosted:
 
-- `OPENROUTER_API_KEY`: OpenRouter API key. PR titles, descriptions and diffs are
-  sent to OpenRouter and the selected model provider.
-- `OPENROUTER_MODEL`: model ID supporting tool calling and structured JSON
-  output. Defaults to `anthropic/claude-sonnet-4.5`.
-- `GITHUB_TOKEN`: fine-grained token limited to the selected repositories, with
-  Contents and Pull requests **read/write**, Checks and Commit statuses **read**,
-  and Metadata **read**. Use an account with no branch-protection bypass rights.
-- `GITHUB_WEBHOOK_SECRET`: a long random secret, also configured on the webhook.
-- `GITHUB_REPOSITORIES`: comma-separated exact `owner/repo` allowlist.
-- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`: a Redis database for
-  locks and completed delivery results. Use separate databases for separate
-  environments. The Vercel Upstash integration can supply `KV_REST_API_URL` and
-  `KV_REST_API_TOKEN` instead; the Redis SDK supports those names automatically.
-  Redis failure prevents merging.
-- `REQUIRED_CHECKS`: mandatory comma-separated check-run names or status contexts
-  that must pass, e.g. `test,typecheck`. Names must match GitHub exactly.
-- `BASE_BRANCH`: allowed target branch; defaults to `main`.
-- `MERGE_LABEL`: opt-in label; defaults to `agent:merge`.
-- `MIN_APPROVALS`: current-head approvals from collaborators with write access;
-  minimum and default is `1`. The PR author and bot accounts do not count.
-- `MERGE_METHOD`: `squash` (default), `merge`, or `rebase`. Enable that method in
-  the repository settings.
-- `DRY_RUN`: defaults to `true`. Set exactly `false` to enable actual merging.
+- `OPENROUTER_API_KEY`: dedicated OpenRouter API key. PR metadata and patches are
+  sent to OpenRouter and the routed provider. Review that provider's data policy
+  before connecting repositories containing sensitive material.
+- `OPENROUTER_MODEL`: defaults to `openrouter/free`. Only that router or an explicit
+  `:free` model is accepted. Requests also cap provider prompt and completion
+  prices at zero. There is no paid-model fallback. Free-provider availability,
+  context windows, and rate limits can cause a review to fail or wait.
+- `GITHUB_TOKEN`: personal-account token with Contents and Pull requests read/write,
+  Commit statuses and Actions read, and Metadata read. Checks read access is
+  required for fetching CI results. Use credentials without branch-rule exemptions.
+- `GITHUB_TOKEN_<OWNER>`: optional token for another owner, e.g.
+  `GITHUB_TOKEN_SIDEQUEST_LABS`. Owner names are uppercased, with punctuation
+  replaced by underscores. Fine-grained tokens apply to one owner each.
+- `GITHUB_WEBHOOK_SECRET`: random signing secret matching every installed webhook.
+- `GITHUB_REPOSITORIES`: comma-separated exact `owner/repo` or `owner/*` entries.
+  The deployed configuration covers `aranlucas/*` and `sidequest-labs/*`.
+- `BASE_BRANCH`: allowed merge target. `default` uses each repository's default
+  branch; an explicit name such as `main` restricts all repositories to that branch.
+- `REQUIRED_CHECKS`: `*` (default) accepts each repository's own check names while
+  requiring at least one check and success for every observed check. A comma-separated
+  list additionally requires successful checks with those exact names.
+- `MIN_APPROVALS`: current-head human collaborator approvals; minimum/default `1`.
+  The author and bot accounts do not count. Active change requests block merging.
+- `MERGE_METHOD`: `squash` (default), `merge`, or `rebase`; enable it in each repository.
+- `DRY_RUN`: `true` by default; `false` enables actual merging after review.
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`: Redis credentials.
+  The Vercel integration instead injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`,
+  which the SDK also accepts. Use separate databases for separate environments.
 
-Protect the target branch in GitHub: require CI and reviews, dismiss stale
-approvals, require conversation resolution, and require the branch to be up to
-date. GitHub remains the final authority for those rules, including code owners
-and check provenance. The bot must not have an exemption from them.
+Protect merge targets in GitHub with required CI, current reviews, resolved
+conversations, and up-to-date branches. GitHub enforces its own repository rules;
+the bot should not be exempt from them.
 
-## GitHub webhook
+## Webhooks and review behavior
 
-In each allowed repository, open **Settings → Webhooks → Add webhook**:
+Configure `https://YOUR-DEPLOYMENT/webhooks/github` with `application/json`, the
+matching signing secret, and **Pull requests**, **Pull request reviews**,
+**Check runs**, **Check suites**, and **Statuses** events.
 
-1. Payload URL: `https://YOUR-DEPLOYMENT/webhooks/github`.
-2. Content type: `application/json`.
-3. Secret: the same value as `GITHUB_WEBHOOK_SECRET`.
-4. Select **Pull requests**, **Pull request reviews**, **Check runs**,
-   **Check suites**, and **Statuses**.
+Every inspectable open PR is reviewed automatically; **no label is required**.
+Draft PRs and PRs waiting on CI or approval still get a model review, while the
+merge gates hold them. Closed PRs, incomplete or binary diffs, empty diffs, over
+100 changed files, and patches exceeding 120,000 characters are held without an
+incomplete model review. A changed code-review input triggers a new review;
+repeated CI/review events reuse a cached decision for the same input.
 
-Create the `agent:merge` label and apply it to a PR when you want the agent to
-consider merging it. Relevant PR changes, review changes and completed CI events
-trigger reevaluation. Events about commits are resolved back to their associated
-open PRs, including when check webhooks omit PR associations.
+The channel verifies HMAC over raw bytes, limits payload size, validates the
+repository, and waits for durable Eve acceptance before returning `202`.
+A `202` means accepted, not reviewed or merged. Events queue per PR.
 
-## Merge behavior
+`review-pull-request` takes no model-supplied target. It uses the verified webhook
+principal, acquires a per-PR Redis lock, and fetches current GitHub state. The
+review model has no tools. The outer Eve agent has only this guarded tool;
+shell, filesystem, browsing, and delegation tools are disabled.
 
-The webhook validates the HMAC signature over the raw bytes, bounds payload size,
-validates the target, and waits for Eve to durably accept the message before
-returning `202`. A `202` means accepted, not merged. Messages are queued per PR.
+A merge additionally requires an open non-draft PR, allowed base branch, clean
+GitHub merge state, current approvals, no change requests, successful CI, and a
+model decision with no reported risks. The tool refetches and compares state,
+verifies lock ownership, and merges with the exact reviewed head SHA. Provider
+errors, malformed decisions, stale state, or Redis failure prevent merging.
+Model judgment can be wrong; it does not replace GitHub policy or human approvals.
 
-The agent calls `review_pull_request`. Its trusted PR identity comes from the
-verified webhook principal, never from model arguments. The tool:
+The tool writes structured `pr-review` logs and retains delivery results and
+review decisions in Redis for seven days. It does not post PR comments. Errors
+appear in Eve runs and server logs. Correct the issue and redeliver the webhook;
+GitHub does not see failures that occur after Eve's `202` receipt.
 
-1. Deduplicates completed deliveries and acquires a 10-minute Redis lock per PR.
-2. Fetches current PR details, files, check runs, commit statuses, and reviews.
-3. Holds drafts, closed PRs, wrong branches, unlabeled PRs, unknown or non-clean
-   merge states, missing approvals, change requests, missing required CI, and
-   any pending or unsuccessful observed checks. Skipped and neutral checks are
-   held too.
-4. Holds PRs with over 100 files, missing or truncated patches, binary changes,
-   or over 120,000 characters of patches. They need manual review.
-5. Uses OpenRouter structured output to independently review the diff. `hold`,
-   reported risks, malformed output, and provider errors cannot authorize a merge.
-6. Refetches GitHub state and compares it with the reviewed snapshot. A changed
-   head, base, description, label, approval, check result, or diff prevents merging.
-7. In live mode, verifies lock ownership and calls GitHub's merge API with the
-   exact reviewed head SHA. A new push cannot be merged with an old decision.
+The production installation uses the free Upstash resource `pr-bot-redis`.
+Webhooks cover the active personal and `sidequest-labs` repositories configured
+at installation time. The owner wildcard permits new repositories, but a newly
+created repository still needs its webhook installed. Archived repositories are
+excluded. A crash after merging cannot merge that same PR twice: a retry sees it
+is already merged.
 
-The review model has no tools. The outer Eve agent has only the guarded review
-tool; shell access, file access, browsing, and delegation are disabled. PR text
-and patches are treated as untrusted data. Model judgment remains fallible;
-branch protection, collaborator approval and required CI are enforced separately.
-
-Review outcomes (`held`, `dry-run`, `merged`) are written as structured
-`pr-review` logs and retained in Redis for seven days, keyed by delivery and PR.
-The bot does not post comments on PRs. Review failures appear in Eve run traces
-and server logs. Correct the issue and redeliver the webhook in GitHub; Eve's
-`202` receipt does not tell GitHub about a later agent failure. Delivery retries
-can start another Eve turn, but completed tool evaluations are deduplicated.
-A crash after GitHub merges but before caching cannot merge the same PR twice:
-a retry sees the merged PR and holds it.
-
-## Deploy to Vercel
+## Deployment
 
 ```sh
-npx eve link --project pr-bot --non-interactive
-# Add all environment variables in the Vercel project; keep DRY_RUN=true initially.
-npx eve deploy
+pnpm exec eve link --project pr-bot --non-interactive
+# Set the environment variables in Vercel.
+pnpm exec eve deploy
 ```
 
-The standalone `eve build` generates the Vercel output when run on Vercel. Set
-Node.js 24 and use `npm run build` as the build command. Use the standalone agent
-layout in this repository; it does not need a Next.js app or a service graph.
-If Vercel Deployment Protection is enabled, configure a bypass for the webhook
-URL so GitHub can reach it; the webhook's own HMAC check remains required.
+Vercel uses the pinned pnpm version and lockfile. Use `pnpm build` as the build
+command and Node.js 24. The standalone agent needs no frontend or service graph.
+If Deployment Protection applies, configure GitHub webhook access while retaining
+HMAC verification.
 
-Verify a signed GitHub **ping**, apply the merge label to a test PR, and inspect
-the dry-run outcome in logs / Eve Agent Runs. Then set `DRY_RUN=false`, redeploy,
-and trigger a new event. A redelivery with an already completed delivery ID uses
-its cached result, including a prior dry-run result.
-
-Installing this repository alone does not create a webhook or deployment. The
-current production installation has a GitHub webhook at
-`https://pr-bot-kohl.vercel.app/webhooks/github` and a free Upstash Redis resource
-named `pr-bot-redis`.
-
-## Verify
-
-```sh
-npm test
-npm run typecheck
-npm run build
-```
-
-Tests use fake GitHub and Redis services and require no credentials. They cover
-signature verification, event routing, hard merge gates, changed PR state,
-model failures, SHA pinning, delivery deduplication and lock ownership. CI runs
-`test` and `typecheck` as separate check jobs. A live OpenRouter review and merge
-require configured credentials and a test repository.
+Verify a signed GitHub ping and a draft PR review before enabling actual merges.
+GitHub-hosted CI also requires an account with working Actions billing/capacity;
+account billing failures are independent of local test results.

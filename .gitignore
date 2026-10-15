@@ -1,7 +1,22 @@
+# Dependencies and package-manager caches
 node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+
+# Local credentials and configuration
 .env
 .env.*
 !.env.example
+
+# Generated Eve and Vercel output
 .eve/
 .vercel/
 .output/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local logs and OS metadata
+*.log
+.DS_Store
