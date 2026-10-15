@@ -66,7 +66,9 @@ There are no custom comment or merge tools, Redis locks, review receipts, review
 fingerprints, repository allowlists, or application-level dry-run checks. The
 review procedure lives in `agent/instructions.md` and the extension executes the
 GitHub operations. It asks the agent to post findings before merging, refresh
-PR/review/CI state, and merge only when the change is ready.
+PR/review/CI state, and merge only when the change is ready. Reviews are published
+only while the PR is open. The agent stops silently for closed or merged PRs and
+ends immediately after a merge attempt without posting a merge confirmation.
 
 ## Configuration
 
@@ -126,6 +128,8 @@ repositories the bot should manage. Point its webhook to
 The native Eve channel verifies webhook signatures and queues turns per PR.
 Reviews run on PR opened, reopened, synchronize, ready-for-review, and edited
 events, plus completed check runs and check suites with an associated PR.
+Before dispatching, the channel fetches the current PR state and ignores closed
+or merged PRs, including delayed events whose payload still describes an open PR.
 Eve's native CI hooks target the first associated PR; events without PR
 associations do not start a turn. Review/status events and commit-to-PR fallback
 are not handled by a supplemental adapter.

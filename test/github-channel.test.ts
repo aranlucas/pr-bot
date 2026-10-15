@@ -9,6 +9,11 @@ interface Delivery {
   readonly options: ChannelSendOptions<GitHubChannelState>;
 }
 
+interface PullRequestState {
+  state: "open" | "closed";
+  merged: boolean;
+}
+
 const repository = { id: 123, full_name: "Acme/App", name: "App", owner: { login: "Acme" } };
 
 const envelope = {
@@ -93,7 +98,10 @@ function fixture() {
 }
 
 describe("native GitHub webhook integration", () => {
+  let pullRequest: PullRequestState;
+
   beforeEach(() => {
+    pullRequest = { state: "open", merged: false };
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     vi.stubEnv("GITHUB_APP_ID", "123");
     vi.stubEnv("GITHUB_APP_PRIVATE_KEY", privateKey.export({ type: "pkcs8", format: "pem" }));
@@ -119,6 +127,7 @@ describe("native GitHub webhook integration", () => {
             : {
                 number: 7,
                 title: "Fix",
+                ...pullRequest,
                 head: { sha: "head" },
                 base: { sha: "base" },
               },
@@ -188,5 +197,81 @@ describe("native GitHub webhook integration", () => {
     const response = await f.dispatch("pull_request", JSON.stringify(envelope), "forged");
     assert.strictEqual(response.status, 401);
     assert.strictEqual(f.deliveries.length, 0);
+  });
+
+  test.each([
+    { event: "check_run", merged: false },
+    { event: "check_run", merged: true },
+    { event: "check_suite", merged: false },
+    { event: "check_suite", merged: true },
+  ])("ignores $event completions for a closed PR (merged: $merged)", async ({ event, merged }) => {
+    pullRequest = { state: "closed", merged };
+    const f = fixture();
+
+    const response = await f.dispatch(
+      event,
+      JSON.stringify({
+        ...envelope,
+        action: "completed",
+        [event]: {
+          id: 1,
+          head_sha: "head",
+          status: "completed",
+          conclusion: "success",
+          app: { id: 2, slug: "github-actions" },
+          pull_requests: [{ number: 7 }],
+        },
+      }),
+    );
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(f.deliveries.length, 0);
+  });
+
+  test("ignores a delayed PR event when the current PR has already merged", async () => {
+    pullRequest = { state: "closed", merged: true };
+    const f = fixture();
+
+    const response = await f.dispatch(
+      "pull_request",
+      JSON.stringify({
+        ...envelope,
+        action: "synchronize",
+        pull_request: {
+          number: 7,
+          state: "open",
+          merged: false,
+          head: { sha: "head" },
+          base: { sha: "base" },
+        },
+      }),
+    );
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(f.deliveries.length, 0);
+  });
+
+  test("dispatches a completed check suite while the associated PR is open", async () => {
+    const f = fixture();
+
+    const response = await f.dispatch(
+      "check_suite",
+      JSON.stringify({
+        ...envelope,
+        action: "completed",
+        check_suite: {
+          id: 1,
+          head_sha: "head",
+          status: "completed",
+          conclusion: "success",
+          app: { id: 2, slug: "github-actions" },
+          pull_requests: [{ number: 7 }],
+        },
+      }),
+    );
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(f.deliveries.length, 1);
+    assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
   });
 });
