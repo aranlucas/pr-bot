@@ -142,14 +142,20 @@ Verify a signed GitHub ping and a draft PR review before enabling actual merges.
 GitHub-hosted CI also requires an account with working Actions billing/capacity;
 account billing failures are independent of local test results.
 
-## Rollout
+## Production verification
 
-Keep `DRY_RUN=true` until a signed App delivery and a draft PR review succeed in
-production. The old repository webhooks at `/webhooks/github` must stay paused;
-the new endpoint accepts GitHub App events with an installation ID.
+The self-managed App is installed on all 54 personal repositories and all 11
+`sidequest-labs` repositories, including future repositories in both accounts.
+The Production deployment uses `/eve/v1/github` directly; the unused Vercel
+Connect connector was removed. The 65 legacy repository webhooks were deleted,
+and the old bot PAT was revoked and removed from Vercel.
 
-The legacy `pnpm webhooks:pause` and `pnpm webhooks:resume` commands manage only
-the old repository webhooks. Do not resume them after the App migration. Their
-local inventory is `.vercel/repository-webhooks.json`; these hooks can be removed
-after production verification. Enable or pause the new App webhook in its GitHub
-App settings.
+Production health and unsigned-request rejection passed. A temporary draft PR
+verified actual GitHub delivery, Eve dispatch, installation authentication, and
+a structured OpenRouter review. The bot correctly held it for draft status,
+missing approval, and unsuccessful checks. The test PR was closed and its branch
+removed. Local checks include 60 tests and an Eve production build.
+
+Actual merging remains disabled with `DRY_RUN=true`. Enable it by setting
+`DRY_RUN=false` in Vercel Production and redeploying after reviewing the results.
+Enable or pause App delivery through the GitHub App's webhook settings.
