@@ -70,6 +70,20 @@ PR/review/CI state, and merge only when the change is ready. Reviews are publish
 only while the PR is open. The agent stops silently for closed or merged PRs and
 ends immediately after a merge attempt without posting a merge confirmation.
 
+The `review-changes` skill loads repository-specific criteria from the root
+`coding-standards.md` on the PR's base branch, checks whether tests exercise
+meaningful behavior, and assesses reversibility and blast radius. Automatic
+merging is reserved for reversible, localized changes. Irreversible changes,
+broad material impact, and materially uncertain merge danger are left for a
+human to review and merge. These are agent instructions; GitHub branch
+protection remains the enforced merge boundary.
+
+Reviews include the assessed behavior, concrete findings, verification evidence,
+merge danger, and the next action. A confirmed process gap can produce one
+specific prevention suggestion for a later check or standards update.
+See [review design](docs/review-design.md) for the source talk, design choices,
+and the complementary role of Shipshape's practice catalog.
+
 ## Configuration
 
 Set these in `.env.local` locally and in the Vercel environment when hosted:
@@ -137,6 +151,8 @@ are not handled by a supplemental adapter.
 The channel supplies the PR metadata and diff. Reviews use GitHub API tools and
 skip sandbox checkout. The agent refreshes the PR context, posts its review with
 the extension's native comment tool, and uses the native merge tool when ready.
+High-risk changes stay open for a human to merge; approval alone does not lift
+the bot's risk gate, and review events do not start a new turn.
 The channel does not also publish the final assistant message, avoiding a second
 copy of the review. Framework failure messages still appear in the PR thread.
 
