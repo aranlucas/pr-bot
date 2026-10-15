@@ -20,16 +20,16 @@
     "webhooks:pause": "tsx scripts/webhooks.ts pause"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.69",
+    "@ai-sdk/openai-compatible": "^3.0.70",
     "@octokit/rest": "^22.0.1",
     "@octokit/webhooks-methods": "^6.0.0",
     "@upstash/redis": "^1.39.0",
-    "ai": "^7.0.141",
+    "ai": "^7.0.142",
     "eve": "^0.79.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@aranlucas/oxforge": "^0.2.0",
+    "@aranlucas/oxforge": "^0.2.2",
     "@types/node": "^26.6.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
@@ -51,5 +51,5 @@
   "engines": {
     "node": "24.x"
   },
-  "packageManager": "pnpm@12.4.2"
+  "packageManager": "pnpm@12.11.2"
 }
