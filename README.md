@@ -112,6 +112,12 @@ reason, and passed policy checks as a PR comment. Retries reuse the App's commen
 for the same commit. If posting fails, the bot does not merge; if GitHub rejects
 the merge, the comment is updated. Dry runs do not post merge announcements.
 
+When an open PR is held, the bot posts the reviewed commit, hold reason, policy
+blockers, and reported risks as a PR comment. Later evaluations update the App's
+comment for that commit only when its content changes. Comment failures leave the
+delivery retryable; closed PRs receive no hold comment. Holds are also reported
+in dry-run mode.
+
 The tool writes structured `pr-review` logs and retains delivery results and
 review decisions in Redis for seven days. Eve's built-in channel can post framework failure messages to PR threads. The
 review tool's structured result remains in logs and Redis. Correct processing

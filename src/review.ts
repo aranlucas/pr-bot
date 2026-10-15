@@ -106,8 +106,18 @@ async function evaluate(
   const { github, store, policy } = deps;
   const pr = await github.snapshot(target);
 
-  if (pr.state !== "open" || pr.merged || !pr.completeDiff || pr.files.length === 0) {
+  const hold = async (result: Result): Promise<Result> => {
+    await github.postHold(target, pr.head, result.reason, result.decision?.risks ?? []);
+
+    return result;
+  };
+
+  if (pr.state !== "open" || pr.merged) {
     return { outcome: "held", reason: blockers(pr, policy).join("; "), head: pr.head };
+  }
+
+  if (!pr.completeDiff || pr.files.length === 0) {
+    return hold({ outcome: "held", reason: blockers(pr, policy).join("; "), head: pr.head });
   }
 
   // Review all inspectable PRs, even while CI or approvals are still pending.
@@ -127,23 +137,23 @@ async function evaluate(
   const reasons = blockers(pr, policy);
 
   if (reasons.length || decision.decision !== "merge" || decision.risks.length) {
-    return {
+    return hold({
       outcome: "held",
       reason: [...reasons, decision.reason].join("; "),
       head: pr.head,
       decision,
-    };
+    });
   }
 
   const fresh = await github.snapshot(target);
 
   if (blockers(fresh, policy).length || fingerprint(pr) !== fingerprint(fresh)) {
-    return {
+    return hold({
       outcome: "held",
       reason: "PR changed during review; a fresh evaluation is required",
       head: fresh.head,
       decision,
-    };
+    });
   }
 
   if (policy.dryRun) {

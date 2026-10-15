@@ -88,6 +88,7 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
   let snapshots = 0;
   let merges = 0;
   let assessments = 0;
+  const holds: string[] = [];
 
   const github: GitHub = {
     snapshot() {
@@ -95,6 +96,11 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
     },
     prsForCommit() {
       return Promise.resolve([42]);
+    },
+    postHold(actual, sha, reason, risks) {
+      holds.push(JSON.stringify({ target: actual, sha, reason, risks }));
+
+      return Promise.resolve();
     },
     merge(actual, sha, method, reason) {
       assert.deepEqual(actual, target);
@@ -118,6 +124,7 @@ function fixture(pr = snapshot(), options: FixtureOptions = {}) {
         return Promise.resolve(options.decision ?? approval);
       },
     },
+    holds,
     counts: () => ({ snapshots, merges, assessments }),
     data,
   };
@@ -291,5 +298,59 @@ await test("different webhook deliveries reuse the same code review", async () =
   const f = fixture(snapshot(), { dryRun: true });
   await reviewPullRequest(target, f.deps);
   await reviewPullRequest({ ...target, delivery: "delivery-2" }, f.deps);
+  assert.equal(f.counts().assessments, 1);
+});
+
+await test("held reviews publish policy blockers, model reason and risks", async () => {
+  const f = fixture(
+    { ...snapshot(), approvals: [] },
+    {
+      decision: {
+        decision: "hold",
+        reason: "Missing regression coverage",
+        risks: ["Unchecked input"],
+      },
+    },
+  );
+
+  await reviewPullRequest(target, f.deps);
+
+  assert.equal(f.holds.length, 1);
+  assert.ok(f.holds[0].includes("Not enough current-commit approvals"));
+  assert.ok(f.holds[0].includes("Missing regression coverage"));
+  assert.ok(f.holds[0].includes("Unchecked input"));
+  assert.ok(f.holds[0].includes("head-sha"));
+  await reviewPullRequest(target, f.deps);
+
+  assert.equal(f.holds.length, 1);
+});
+
+await test("incomplete open PRs explain the hold without invoking the model", async () => {
+  const f = fixture({ ...snapshot(), completeDiff: false });
+  await reviewPullRequest(target, f.deps);
+
+  assert.equal(f.holds.length, 1);
+  assert.ok(f.holds[0].includes("Diff is incomplete"));
+  assert.equal(f.counts().assessments, 0);
+});
+
+await test("closed PRs and eligible dry runs do not publish hold comments", async () => {
+  const closed = fixture({ ...snapshot(), state: "closed" });
+  const dry = fixture(snapshot(), { dryRun: true });
+  await reviewPullRequest(target, closed.deps);
+  await reviewPullRequest(target, dry.deps);
+  assert.equal(closed.holds.length, 0);
+  assert.equal(dry.holds.length, 0);
+});
+
+await test("a failed hold comment leaves the delivery retryable and reuses the review", async () => {
+  const f = fixture({ ...snapshot(), draft: true });
+  const postHold = f.deps.github.postHold.bind(f.deps.github);
+  f.deps.github.postHold = () => Promise.reject(new Error("Comment failed"));
+  await assert.rejects(reviewPullRequest(target, f.deps), /Comment failed/);
+  f.deps.github.postHold = postHold;
+  await reviewPullRequest(target, f.deps);
+
+  assert.equal(f.holds.length, 1);
   assert.equal(f.counts().assessments, 1);
 });
