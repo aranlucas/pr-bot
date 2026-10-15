@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["agent/**/*.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": ["agent/**/*.ts", "src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "oxfmt.config.ts"]
 }

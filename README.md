@@ -44,12 +44,14 @@ Set variables in `.env.local` locally and the Vercel Production environment when
   `:free` model is accepted. Requests also cap provider prompt and completion
   prices at zero. There is no paid-model fallback. Free-provider availability,
   context windows, and rate limits can cause a review to fail or wait.
-- `GITHUB_TOKEN`: personal-account token with Contents and Pull requests read/write,
-  Commit statuses and Actions read, and Metadata read. Checks read access is
-  required for fetching CI results. Use credentials without branch-rule exemptions.
+- `GITHUB_TOKEN`: token that can read private Checks API results and merge PRs.
+  The installed credential is a dedicated classic PAT with only the `repo` scope,
+  expiring November 14, 2026. The fine-grained tokens tested during setup returned
+  `403` for private check runs. Use credentials without branch-rule exemptions.
 - `GITHUB_TOKEN_<OWNER>`: optional token for another owner, e.g.
   `GITHUB_TOKEN_SIDEQUEST_LABS`. Owner names are uppercased, with punctuation
-  replaced by underscores. Fine-grained tokens apply to one owner each.
+  replaced by underscores. The current installation uses the verified repository
+  token for personal and organization access.
 - `GITHUB_WEBHOOK_SECRET`: random signing secret matching every installed webhook.
 - `GITHUB_REPOSITORIES`: comma-separated exact `owner/repo` or `owner/*` entries.
   The deployed configuration covers `aranlucas/*` and `sidequest-labs/*`.
@@ -127,3 +129,26 @@ HMAC verification.
 Verify a signed GitHub ping and a draft PR review before enabling actual merges.
 GitHub-hosted CI also requires an account with working Actions billing/capacity;
 account billing failures are independent of local test results.
+
+## Current rollout status
+
+The pnpm/Oxforge and free-only release is pushed to `main`. Local lint, format,
+type checks, 49 tests, and the Eve build pass. Live API checks verified private
+check-run access on personal and `sidequest-labs` repositories, plus free-model
+structured output and tool calling.
+
+Vercel rejected the release because the account reached its daily free deployment
+limit. The 65 installed bot webhooks are paused while the previous version is
+still deployed. Actual merging remains disabled (`DRY_RUN=true`).
+
+After deployment capacity is restored, deploy this checkout and then resume delivery:
+
+```sh
+pnpm exec eve deploy
+pnpm webhooks:resume
+```
+
+The webhook command uses GitHub CLI authentication and the local installation
+inventory at `.vercel/repository-webhooks.json`. It verifies each webhook's URL
+before changing it. `pnpm webhooks:pause` pauses the same installation.
+Run a draft PR through the deployed service before setting `DRY_RUN=false`.
