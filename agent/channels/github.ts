@@ -40,11 +40,11 @@ export default defineChannel({
       const raw = Buffer.concat(chunks);
 
       if (
-        !verifySignature(
+        !(await verifySignature(
           raw,
           request.headers.get("x-hub-signature-256"),
           required("GITHUB_WEBHOOK_SECRET"),
-        )
+        ))
       ) {
         return new Response("Invalid signature", { status: 401 });
       }

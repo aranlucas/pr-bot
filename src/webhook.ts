@@ -1,18 +1,17 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { isUtf8 } from "node:buffer";
+import { verify } from "@octokit/webhooks-methods";
 import { z } from "zod";
 
 export function verifySignature(
   body: Readonly<Uint8Array>,
   signature: string | null,
   secret: string,
-): boolean {
-  if (!signature || !/^sha256=[a-f0-9]{64}$/.test(signature)) {
-    return false;
+): Promise<boolean> {
+  if (!signature || !body.length || !isUtf8(body)) {
+    return Promise.resolve(false);
   }
 
-  const expected = createHmac("sha256", secret).update(body).digest();
-
-  return timingSafeEqual(expected, Buffer.from(signature.slice(7), "hex"));
+  return verify(secret, Buffer.from(body).toString("utf8"), signature);
 }
 
 const prNumber = z.object({ number: z.number().int().positive() });

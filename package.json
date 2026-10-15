@@ -22,6 +22,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.69",
     "@octokit/rest": "^22.0.1",
+    "@octokit/webhooks-methods": "^6.0.0",
     "@upstash/redis": "^1.39.0",
     "ai": "^7.0.141",
     "eve": "^0.79.2",

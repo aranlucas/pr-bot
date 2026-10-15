@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { Octokit } from "@octokit/rest";
 import { z } from "zod";
 
 const run = promisify(execFile);
@@ -18,6 +19,10 @@ const records = z
   )
   .parse(JSON.parse(await readFile(".vercel/repository-webhooks.json", "utf8")));
 
+const { stdout } = await run("gh", ["auth", "token"], { encoding: "utf8" });
+
+const api = new Octokit({ auth: stdout.trim(), request: { timeout: 20_000 } });
+
 const queue = [...records];
 
 async function worker(): Promise<void> {
@@ -27,18 +32,15 @@ async function worker(): Promise<void> {
     return;
   }
 
-  const path = `repos/${record.repository}/hooks/${record.hookId}`;
-  const existing = await run("gh", ["api", path], { encoding: "utf8" });
-
-  const hook = z
-    .object({ config: z.object({ url: z.string() }) })
-    .parse(JSON.parse(existing.stdout));
+  const [owner, repo] = record.repository.split("/");
+  const args = { owner, repo, hook_id: record.hookId };
+  const { data: hook } = await api.repos.getWebhook(args);
 
   if (hook.config.url !== expectedUrl) {
     throw new Error(`Refusing to change an unrelated webhook in ${record.repository}`);
   }
 
-  await run("gh", ["api", path, "--method", "PATCH", "-F", `active=${String(mode === "resume")}`]);
+  await api.repos.updateWebhook({ ...args, active: mode === "resume" });
   process.stdout.write(`${mode}: ${record.repository}\n`);
   await worker();
 }

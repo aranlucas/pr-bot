@@ -5,16 +5,26 @@ import { parseEvent, verifySignature } from "@/webhook";
 
 const repository = { full_name: "Acme/App" };
 
-await test("verifies exact raw bytes and rejects forged, malformed and missing signatures", () => {
+await test("verifies exact raw bytes and rejects forged, malformed and missing signatures", async () => {
   const body = Buffer.from('{ "action": "opened" }');
   const signature = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
-  assert.equal(verifySignature(body, signature, "secret"), true);
-  assert.equal(verifySignature(Buffer.from('{"action":"opened"}'), signature, "secret"), false);
-  assert.equal(verifySignature(body, signature, "different"), false);
+  assert.equal(await verifySignature(body, signature, "secret"), true);
+  assert.equal(
+    await verifySignature(Buffer.from('{"action":"opened"}'), signature, "secret"),
+    false,
+  );
+  assert.equal(await verifySignature(body, signature, "different"), false);
 
-  for (const invalid of [null, "", "sha256=bad", "sha1=abc", `sha256=${"z".repeat(64)}`]) {
-    assert.equal(verifySignature(body, invalid, "secret"), false);
-  }
+  await Promise.all(
+    [null, "", "sha256=bad", "sha1=abc", `sha256=${"z".repeat(64)}`].map(async (invalid) => {
+      assert.equal(await verifySignature(body, invalid, "secret"), false);
+    }),
+  );
+  assert.equal(await verifySignature(Buffer.alloc(0), signature, "secret"), false);
+  // Octokit's verifier accepts strings; invalid UTF-8 must never be replaced before verification.
+  const invalidUtf8 = Buffer.from([0xff]);
+  const replacementSignature = `sha256=${createHmac("sha256", "secret").update("�").digest("hex")}`;
+  assert.equal(await verifySignature(invalidUtf8, replacementSignature, "secret"), false);
 });
 
 await test("PR and review events map to a normalized repository and PR number", () => {
