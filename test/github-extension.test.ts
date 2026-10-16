@@ -1,11 +1,9 @@
-import { generateKeyPairSync } from "node:crypto";
 import { assert, test, vi } from "vitest";
 import githubExtension from "@github-tools/eve-extension";
 import { github } from "@github-tools/eve-extension/tools";
 import type { ToolContext } from "eve/tools";
 import { z } from "zod";
 import githubMount from "../agent/extensions/github.js";
-import { githubInstallation } from "@/github";
 
 function unexpected(): never {
   throw new Error("Unexpected fixture operation");
@@ -27,18 +25,13 @@ const ctx: ToolContext = {
 };
 
 test("the mounted extension resolves native review tools and posts and merges through the GitHub App", async () => {
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  vi.stubEnv("GITHUB_APP_ID", "123");
-  vi.stubEnv("GITHUB_APP_PRIVATE_KEY", privateKey.export({ type: "pkcs8", format: "pem" }));
-  vi.spyOn(githubInstallation, "get").mockReturnValue(99);
-
   const calls: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
     calls.push(`${init?.method ?? "GET"} ${path}`);
     const authorization = new Headers(init?.headers).get("authorization");
 
-    if (path === "/app/installations/99/access_tokens") {
+    if (path === "/app/installations/171837535/access_tokens") {
       assert.ok(authorization?.startsWith("bearer ey"));
 
       return Promise.resolve(
@@ -99,9 +92,9 @@ test("the mounted extension resolves native review tools and posts and merges th
   assert.ok(tools.addPullRequestComment);
   assert.ok(tools.mergePullRequest);
   assert.ok(tools.createOrUpdateFile);
-  assert.isUndefined(tools.createBranch);
+  assert.ok(tools.createBranch);
+  assert.ok(tools.createPullRequest);
   assert.isUndefined(tools.deleteBranch);
-  assert.isUndefined(tools.createPullRequest);
 
   const input = { owner: "acme", repo: "app", pullNumber: 42 };
 

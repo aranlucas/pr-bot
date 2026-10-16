@@ -175,9 +175,15 @@ importers:
       '@github-tools/eve-extension':
         specifier: ^0.8.1
         version: 0.8.1(@vercel/connect@2.5.2(ai@7.0.142(zod@4.6.7))(eve@0.80.1(ai@7.0.142(zod@4.6.7))(just-bash@3.6.0)))(ai@7.0.142(zod@4.6.7))(eve@0.80.1(ai@7.0.142(zod@4.6.7))(just-bash@3.6.0))(vite@8.3.4(@types/node@26.6.5)(yaml@2.9.1))
+      '@github-tools/sdk':
+        specifier: ^1.18.0
+        version: 1.18.0(@vercel/connect@2.5.2(ai@7.0.142(zod@4.6.7))(eve@0.80.1(ai@7.0.142(zod@4.6.7))(just-bash@3.6.0)))(ai@7.0.142(zod@4.6.7))(eve@0.80.1(ai@7.0.142(zod@4.6.7))(just-bash@3.6.0))(vite@8.3.4(@types/node@26.6.5)(yaml@2.9.1))(zod@4.6.7)
       '@octokit/auth-app':
         specifier: ^8.3.1
         version: 8.3.1
+      '@t3-oss/env-core':
+        specifier: ^0.13.11
+        version: 0.13.11(typescript@7.0.2)(zod@4.6.7)
       '@vercel/connect':
         specifier: ^2.5.2
         version: 2.5.2(ai@7.0.142(zod@4.6.7))(eve@0.80.1(ai@7.0.142(zod@4.6.7))(just-bash@3.6.0))
@@ -841,6 +847,23 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@t3-oss/env-core@0.13.11':
+    resolution: {integrity: sha512-sM7GYY+KL7H/Hl0BE0inWfk3nRHZOLhmVn7sHGxaZt9FAR6KqREXAE+6TqKfiavfXmpRxO/OZ2QgKRd+oiBYRQ==}
+    peerDependencies:
+      arktype: ^2.1.0
+      typescript: '>=5.0.0'
+      valibot: ^1.0.0-beta.7 || ^1.0.0
+      zod: ^3.24.0 || ^4.0.0
+    peerDependenciesMeta:
+      arktype:
+        optional: true
+      typescript:
+        optional: true
+      valibot:
+        optional: true
+      zod:
+        optional: true
 
   '@tokenizer/inflate@0.4.1':
     resolution: {integrity: sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA==}
@@ -2372,6 +2395,11 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@t3-oss/env-core@0.13.11(typescript@7.0.2)(zod@4.6.7)':
+    optionalDependencies:
+      typescript: 7.0.2
+      zod: 4.6.7
 
   '@tokenizer/inflate@0.4.1':
     dependencies:
