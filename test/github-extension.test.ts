@@ -81,7 +81,7 @@ test("the mounted extension resolves native review tools and posts and merges th
   });
 
   assert.ok(githubMount);
-  assert.strictEqual(githubExtension.config.preset, "code-review");
+  assert.deepEqual(githubExtension.config.preset, ["code-review", "pr-author"]);
   assert.strictEqual(githubExtension.config.requireApproval, false);
   const resolve = github.events["step.started"];
   assert.ok(resolve);
@@ -98,6 +98,10 @@ test("the mounted extension resolves native review tools and posts and merges th
   assert.ok(tools.getCombinedStatus);
   assert.ok(tools.addPullRequestComment);
   assert.ok(tools.mergePullRequest);
+  assert.ok(tools.createOrUpdateFile);
+  assert.isUndefined(tools.createBranch);
+  assert.isUndefined(tools.deleteBranch);
+  assert.isUndefined(tools.createPullRequest);
 
   const input = { owner: "acme", repo: "app", pullNumber: 42 };
 

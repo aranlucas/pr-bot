@@ -60,9 +60,12 @@ agent/
   sandbox.ts             # just-bash sandbox (no Docker or Vercel Sandbox)
 ```
 
-The extension uses the `code-review` preset plus `mergePullRequest`. Tools are
+The extension uses the `code-review` and `pr-author` presets plus
+`mergePullRequest`, excluding `createBranch`, `deleteBranch`, and
+`createPullRequest`. Tools are
 namespaced as `github__getPullRequestContext`, `github__addPullRequestComment`,
-`github__mergePullRequest`, and so on. `requireApproval: false` allows the bot to
+`github__createOrUpdateFile`, `github__mergePullRequest`, and so on.
+`requireApproval: false` allows the bot to
 operate autonomously. GitHub enforces repository permissions and branch protection.
 
 There are no custom comment or merge tools, Redis locks, review receipts, review
@@ -72,6 +75,12 @@ GitHub operations. It asks the agent to post findings before merging, refresh
 PR/review/CI state, and merge only when the change is ready. Reviews are published
 only while the PR is open. The agent stops silently for closed or merged PRs and
 ends immediately after a merge attempt without posting a merge confirmation.
+
+For a concrete finding with a small, localized fix, the bot can commit the fix
+to a same-repository PR's head branch with `github__createOrUpdateFile`. It then
+reports the fix commits in its review and does not merge. The bot never merges
+a PR that contains its own commits; a human reviews and merges those. A turn
+started by the bot's own commit reviews it without pushing another fix.
 
 The `review-changes` skill loads repository-specific criteria from the root
 `coding-standards.md` on the PR's base branch, checks whether tests exercise
