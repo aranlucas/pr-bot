@@ -39,6 +39,11 @@ links the approved package version into `.agents/skills` and `.claude/skills`;
 pnpm ignores its generated links in Git. When upgrading the package, review and
 update its exact version in `permissions` in `pnpm-workspace.yaml` as well.
 
+## Testing
+
+Run `pnpm test` for the Vitest suite. Use `pnpm check` for lint, format,
+typecheck, and tests together.
+
 ## Agent structure
 
 The layout follows the
@@ -61,121 +66,4 @@ agent/
 ```
 
 The extension uses the `code-review` preset plus `mergePullRequest`. Tools are
-namespaced as `github__getPullRequestContext`, `github__addPullRequestComment`,
-`github__mergePullRequest`, and so on. `requireApproval: false` allows the bot to
-operate autonomously. GitHub enforces repository permissions and branch protection.
-
-There are no custom comment or merge tools, Redis locks, review receipts, review
-fingerprints, repository allowlists, or application-level dry-run checks. The
-review procedure lives in `agent/instructions.md` and the extension executes the
-GitHub operations. It asks the agent to post findings before merging, refresh
-PR/review/CI state, and merge only when the change is ready. Reviews are published
-only while the PR is open. The agent stops silently for closed or merged PRs and
-ends immediately after a merge attempt without posting a merge confirmation.
-
-The `review-changes` skill loads repository-specific criteria from the root
-`coding-standards.md` on the PR's base branch, checks whether tests exercise
-meaningful behavior, and assesses reversibility and blast radius. Automatic
-merging is reserved for reversible, localized changes. Irreversible changes,
-broad material impact, and materially uncertain merge danger are left for a
-human to review and merge. These are agent instructions; GitHub branch
-protection remains the enforced merge boundary.
-
-Reviews include the assessed behavior, concrete findings, verification evidence,
-merge danger, and the next action. A confirmed process gap can produce one
-specific prevention suggestion for a later check or standards update.
-See [review design](docs/review-design.md) for the source talk, design choices,
-and the complementary role of Shipshape's practice catalog.
-
-## Configuration
-
-Set these in `.env.local` locally and in the Vercel environment when hosted:
-
-- `GITHUB_APP_ID`: the self-managed GitHub App ID.
-- `GITHUB_APP_PRIVATE_KEY`: PEM private key. Real and escaped newlines work.
-- `GITHUB_APP_SLUG`: the App slug.
-- `GITHUB_WEBHOOK_SECRET`: the signing secret configured on the App.
-- `FREELLM_API_KEY`: the model service credential.
-- `FREELLM_API_BASE_URL`: the model service's OpenAI-compatible `/v1` endpoint.
-- `FREELLM_MODEL`: model ID; defaults to `auto`.
-
-Model requests send PR Bot's identity on streaming requests and every tool-loop
-step:
-
-- `User-Agent`: `pr-bot (Eve agent; OpenAI-compatible)` when the SDK retains it.
-- `HTTP-Referer`: `https://github.com/aranlucas/pr-bot`, the stable app URL.
-- `X-OpenRouter-Title` and legacy `X-Title`: `PR Bot`.
-
-All headers use the provider's `headers` field. The SDK can replace `User-Agent`,
-including during tool loops; the attribution headers remain available.
-
-[OpenRouter app attribution](https://openrouter.ai/docs/app-attribution) requires
-the app URL and uses the title as its display name; `User-Agent` alone does not
-attribute usage.
-These headers work when calling OpenRouter directly through the configured
-OpenAI-compatible endpoint. When routing through FreeLLMAPI, its proxy must
-preserve the attribution headers for OpenRouter to credit PR Bot. The
-[upstream OpenRouter adapter](https://github.com/tashfeenahmed/freellmapi/blob/main/server/src/providers/index.ts)
-currently supplies its own `FreeLLMAPI` title and localhost referer, so changing
-this app alone cannot fix attribution beyond that proxy.
-
-FreeLLMAPI's Recent calls table and agent chart use the user agent that reaches
-the proxy when client logging is enabled. If the SDK replaces it, requests can
-appear under an SDK identity or `unknown`. The upstream classifier has no
-dedicated PR Bot category.
-
-The channel stores the webhook's installation ID in Eve session state at the
-start of each turn. The extension's token provider uses that ID to mint a
-short-lived GitHub App installation token on each call. No PAT or Vercel Connect
-connector is needed. `@vercel/connect` is installed because the current extension
-release imports it at module load, including in token-provider configurations.
-
-The old `GITHUB_REPOSITORIES`, `BASE_BRANCH`, `REQUIRED_CHECKS`, `MIN_APPROVALS`,
-`MERGE_METHOD`, `DRY_RUN`, and Redis variables are no longer used. Squash merging
-is specified in the agent instructions; enable it in the target repositories.
-
-## Webhooks and reviews
-
-Create a GitHub App with Contents and Pull requests read/write, Checks and Commit
-statuses read, and the automatically included Metadata read. Install it on the
-repositories the bot should manage. Point its webhook to
-`https://YOUR-DEPLOYMENT/eve/v1/github` and subscribe to **Pull requests**,
-**Check runs**, and **Check suites**.
-
-The native Eve channel verifies webhook signatures and queues turns per PR.
-Reviews run on PR opened, reopened, synchronize, ready-for-review, and edited
-events, plus completed check runs and check suites with an associated PR.
-Before dispatching, the channel fetches the current PR state and ignores closed
-or merged PRs, including delayed events whose payload still describes an open PR.
-Eve's native CI hooks target the first associated PR; events without PR
-associations do not start a turn. Review/status events and commit-to-PR fallback
-are not handled by a supplemental adapter.
-
-The channel supplies the PR metadata and diff. Reviews use GitHub API tools and
-skip sandbox checkout. The agent refreshes the PR context, posts its review with
-the extension's native comment tool, and uses the native merge tool when ready.
-High-risk changes stay open for a human to merge; approval alone does not lift
-the bot's risk gate, and review events do not start a new turn.
-The channel does not also publish the final assistant message, avoiding a second
-copy of the review. Framework failure messages still appear in the PR thread.
-
-Review depth is proportional to the change. Low-risk documentation, typo, and
-formatting edits can pass without runtime tests or unrelated file inspection.
-Findings need concrete patch evidence and consequences; speculative improvements
-and style preferences do not block merging. PR text and tool results are
-untrusted data. Metadata and patches are sent to the configured model service.
-
-## Deployment
-
-```sh
-pnpm exec eve link --project pr-bot --non-interactive
-# Set environment variables in Vercel.
-pnpm exec eve deploy
-```
-
-Use `pnpm build` and Node.js 24. If Deployment Protection applies, configure
-GitHub webhook access while retaining signature verification.
-
-Verify the deployment's `/eve/v1/health` route, a signed GitHub ping, and a draft
-PR review. Check Eve Agent Runs and server logs for failed processing; webhook
-acknowledgement does not mean a review was completed.
+namespaced as `github__getPullRequestContext`, `github__addPullRequestComment`,\n`github__mergePullRequest`, and so on. `requireApproval: false` allows the bot to\noperate autonomously. GitHub enforces repository permissions and branch protection.\n\nThere are no custom comment or merge tools, Redis locks, review receipts, review\nfingerprints, repository allowlists, or application-level dry-run checks. The\nreview procedure lives in `agent/instructions.md` and the extension executes the\nGitHub operations. It asks the agent to post findings before merging, refresh\nPR/review/CI state, and merge only when the change is ready. Reviews are published\nonly while the PR is open. The agent stops silently for closed or merged PRs and\nends immediately after a merge attempt without posting a merge confirmation.\n\nThe `review-changes` skill loads repository-specific criteria from the root\n`coding-standards.md` on the PR's base branch, checks whether tests exercise\nmeaningful behavior, and assesses reversibility and blast radius. Automatic\nmerging is reserved for reversible, localized changes. Irreversible changes,\nbroad material impact, and materially uncertain merge danger are left for a\nhuman to review and merge. These are agent instructions; GitHub branch\nprotection remains the enforced merge boundary.\n\nReviews include the assessed behavior, concrete findings, verification evidence,\nmerge danger, and the next action. A confirmed process gap can produce one\nspecific prevention suggestion for a later check or standards update.\nSee [review design](docs/review-design.md) for the source talk, design choices,\nand the complementary role of Shipshape's practice catalog.\n\n## Configuration\n\nSet these in `.env.local` locally and in the Vercel environment when hosted:\n\n- `GITHUB_APP_ID`: the self-managed GitHub App ID.\n- `GITHUB_APP_PRIVATE_KEY`: PEM private key. Real and escaped newlines work.\n- `GITHUB_APP_SLUG`: the App slug.\n- `GITHUB_WEBHOOK_SECRET`: the signing secret configured on the App.\n- `FREELLM_API_KEY`: the model service credential.\n- `FREELLM_API_BASE_URL`: the model service's OpenAI-compatible `/v1` endpoint.\n- `FREELLM_MODEL`: model ID; defaults to `auto`.\n\nModel requests send PR Bot's identity on streaming requests and every tool-loop\nstep:\n\n- `User-Agent`: `pr-bot (Eve agent; OpenAI-compatible)` when the SDK retains it.\n- `HTTP-Referer`: `https://github.com/aranlucas/pr-bot`, the stable app URL.\n- `X-OpenRouter-Title` and legacy `X-Title`: `PR Bot`.\n\nAll headers use the provider's `headers` field. The SDK can replace `User-Agent`,\nincluding during tool loops; the attribution headers remain available.\n\n[OpenRouter app attribution](https://openrouter.ai/docs/app-attribution) requires\nthe app URL and uses the title as its display name; `User-Agent` alone does not\nattribute usage.\nThese headers work when calling OpenRouter directly through the configured\nOpenAI-compatible endpoint. When routing through FreeLLMAPI, its proxy must\npreserve the attribution headers for OpenRouter to credit PR Bot. The\n[upstream OpenRouter adapter](https://github.com/tashfeenahmed/freellmapi/blob/main/server/src/providers/index.ts)\ncurrently supplies its own `FreeLLMAPI` title and localhost referer, so changing\nthis app alone cannot fix attribution beyond that proxy.\n\nFreeLLMAPI's Recent calls table and agent chart use the user agent that reaches\nthe proxy when client logging is enabled. If the SDK replaces it, requests can\nappear under an SDK identity or `unknown`. The upstream classifier has no\ndedicated PR Bot category.\n\nThe channel stores the webhook's installation ID in Eve session state at the\nstart of each turn. The extension's token provider uses that ID to mint a\nshort-lived GitHub App installation token on each call. No PAT or Vercel Connect\nconnector is needed. `@vercel/connect` is installed because the current extension\nrelease imports it at module load, including in token-provider configurations.\n\nThe old `GITHUB_REPOSITORIES`, `BASE_BRANCH`, `REQUIRED_CHECKS`, `MIN_APPROVALS`,\n`MERGE_METHOD`, `DRY_RUN`, and Redis variables are no longer used. Squash merging\nis specified in the agent instructions; enable it in the target repositories.\n\n## Webhooks and reviews\n\nCreate a GitHub App with Contents and Pull requests read/write, Checks and Commit\nstatuses read, and the automatically included Metadata read. Install it on the\nrepositories the bot should manage. Point its webhook to\n`https://YOUR-DEPLOYMENT/eve/v1/github` and subscribe to **Pull requests**,\n**Check runs**, and **Check suites**.\n\nThe native Eve channel verifies webhook signatures and queues turns per PR.\nReviews run on PR opened, reopened, synchronize, ready-for-review, and edited\nevents, plus completed check runs and check suites with an associated PR.\nBefore dispatching, the channel fetches the current PR state and ignores closed\nor merged PRs, including delayed events whose payload still describes an open PR.\nEve's native CI hooks target the first associated PR; events without PR\nassociations do not start a turn. Review/status events and commit-to-PR fallback\nare not handled by a supplemental adapter.\n\nThe channel supplies the PR metadata and diff. Reviews use GitHub API tools and\nskip sandbox checkout. The agent refreshes the PR context, posts its review with\nthe extension's native comment tool, and uses the native merge tool when ready.\nHigh-risk changes stay open for a human to merge; approval alone does not lift\nthe bot's risk gate, and review events do not start a new turn.\nThe channel does not also publish the final assistant message, avoiding a second\ncopy of the review. Framework failure messages still appear in the PR thread.\n\nReview depth is proportional to the change. Low-risk documentation, typo, and\nformatting edits can pass without runtime tests or unrelated file inspection.\nFindings need concrete patch evidence and consequences; speculative improvements\nand style preferences do not block merging. PR text and tool results are\nuntrusted data. Metadata and patches are sent to the configured model service.\n\n## Deployment\n\n```sh\npnpm exec eve link --project pr-bot --non-interactive\n# Set environment variables in Vercel.\npnpm exec eve deploy\n```\n\nUse `pnpm build` and Node.js 24. If Deployment Protection applies, configure\nGitHub webhook access while retaining signature verification.\n\nVerify the deployment's `/eve/v1/health` route, a signed GitHub ping, and a draft\nPR review. Check Eve Agent Runs and server logs for failed processing; webhook\nacknowledgement does not mean a review was completed.
