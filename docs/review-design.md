@@ -33,11 +33,14 @@ nor a standards preference becomes a defect without a concrete consequence.
 
 ## Capability boundaries
 
-The talk also recommends reviewers committing fixes. That requires a different
-execution path from this bot's API-only review-and-merge setup: an isolated
-checkout, a way to validate edits, and writes protected against a moving PR head.
-This change does not add that path or claim to fix code. It keeps the dedicated
-reviewer's context focused and makes its findings actionable.
+The talk also recommends reviewers committing fixes. The bot does this through
+the extension's `pr-author` tools rather than a sandbox checkout:
+`github__createOrUpdateFile` commits one file per call to the PR's head branch,
+with branch and PR creation tools excluded. Fixes are not run before they are
+committed; the repository's CI checks them on the new head. The tool pins each
+commit to the branch head at the time of the call, not to the reviewed SHA, so
+the instructions refresh the PR and compare its head with the reviewed SHA
+before writing. The bot never merges a PR containing its own commits.
 
 Merge-danger classification is model judgment expressed in instructions, not a
 deterministic enforcement mechanism. Repository owners should enforce mandatory

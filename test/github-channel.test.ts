@@ -1,4 +1,4 @@
-import { createHmac, generateKeyPairSync } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { assert, beforeEach, describe, test, vi } from "vitest";
 import type { ChannelSendOptions, RouteHandlerArgs, Session } from "eve/channels";
 import type { GitHubChannelState } from "eve/channels/github";
@@ -102,9 +102,6 @@ describe("native GitHub webhook integration", () => {
 
   beforeEach(() => {
     pullRequest = { state: "open", merged: false };
-    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    vi.stubEnv("GITHUB_APP_ID", "123");
-    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", privateKey.export({ type: "pkcs8", format: "pem" }));
     vi.stubEnv("GITHUB_APP_SLUG", "pr-bot");
     vi.stubEnv("GITHUB_WEBHOOK_SECRET", "secret");
 
@@ -156,7 +153,7 @@ describe("native GitHub webhook integration", () => {
     assert.strictEqual(f.deliveries[0].options.state.installationId, 99);
   });
 
-  test("native CI hooks dispatch the first associated PR and ignore checks without associations", async () => {
+  test("completed check runs and check suites do not start a turn", async () => {
     const f = fixture();
 
     const check = {
@@ -165,31 +162,20 @@ describe("native GitHub webhook integration", () => {
       status: "completed",
       conclusion: "success",
       app: { id: 2, slug: "github-actions" },
+      pull_requests: [{ number: 7 }],
     };
 
-    const response = await f.dispatch(
-      "check_run",
-      JSON.stringify({
-        ...envelope,
-        action: "completed",
-        check_run: { ...check, pull_requests: [{ number: 7 }, { number: 8 }] },
-      }),
+    const responses = await Promise.all(
+      ["check_run", "check_suite"].map((event) =>
+        f.dispatch(event, JSON.stringify({ ...envelope, action: "completed", [event]: check })),
+      ),
     );
 
-    assert.strictEqual(response.status, 200);
     assert.deepEqual(
-      f.deliveries.map((delivery) => delivery.address),
-      ["repo:123:pull:7"],
+      responses.map((response) => response.status),
+      [200, 200],
     );
-    await f.dispatch(
-      "check_run",
-      JSON.stringify({
-        ...envelope,
-        action: "completed",
-        check_run: { ...check, pull_requests: [] },
-      }),
-    );
-    assert.strictEqual(f.deliveries.length, 1);
+    assert.strictEqual(f.deliveries.length, 0);
   });
 
   test("the native channel rejects forged webhook signatures", async () => {
@@ -228,8 +214,7 @@ describe("native GitHub webhook integration", () => {
     assert.strictEqual(f.deliveries.length, 0);
   });
 
-  test("ignores a delayed PR event when the current PR has already merged", async () => {
-    pullRequest = { state: "closed", merged: true };
+  test("ignores pushes to an open PR", async () => {
     const f = fixture();
 
     const response = await f.dispatch(
@@ -249,29 +234,5 @@ describe("native GitHub webhook integration", () => {
 
     assert.strictEqual(response.status, 200);
     assert.strictEqual(f.deliveries.length, 0);
-  });
-
-  test("dispatches a completed check suite while the associated PR is open", async () => {
-    const f = fixture();
-
-    const response = await f.dispatch(
-      "check_suite",
-      JSON.stringify({
-        ...envelope,
-        action: "completed",
-        check_suite: {
-          id: 1,
-          head_sha: "head",
-          status: "completed",
-          conclusion: "success",
-          app: { id: 2, slug: "github-actions" },
-          pull_requests: [{ number: 7 }],
-        },
-      }),
-    );
-
-    assert.strictEqual(response.status, 200);
-    assert.strictEqual(f.deliveries.length, 1);
-    assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
   });
 });

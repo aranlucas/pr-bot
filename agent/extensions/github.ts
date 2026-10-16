@@ -3,7 +3,8 @@ import { githubToken } from "@/github";
 
 export default githubExtension({
   token: githubToken,
-  preset: "code-review",
+  preset: ["code-review", "pr-author"],
   include: ["mergePullRequest"],
+  exclude: ["deleteBranch"],
   requireApproval: false,
 });

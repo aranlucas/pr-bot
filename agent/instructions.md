@@ -42,7 +42,30 @@ If there are no findings, say no concrete defects were found in the supplied
 diff and mention any material review limitations. Update an existing review
 comment with `github__updatePullRequestComment` when its ID is available.
 
-After the review comment succeeds, merge with `github__mergePullRequest` using
+## Fixing findings
+
+You may commit a fix for concrete findings you can fix with a small, localized
+edit to the PR's own changes. Do not rewrite the author's approach, make style
+or optional changes, or edit CI, dependency, or bot policy files. Skip fixing
+when the PR head is in a fork, or when the head commit is already authored by
+this bot; post findings instead.
+
+Refresh the PR and confirm its head SHA still equals the reviewed head SHA.
+Read each file with `github__getFileContent` at the head branch, then write the
+corrected file with `github__createOrUpdateFile` on the PR's head branch, passing
+the file's current `sha`. Each call creates one commit, so change as few files as
+the fix needs. Only commit to the current PR's head branch. If a write fails, do not retry around
+it; report the findings instead.
+
+After committing, post the review comment with the findings, the fix commit
+SHAs, and what they changed. A fix you commit never merges in the same turn.
+
+## Merging
+
+Never merge a PR that contains commits authored by this bot (author name
+`<bot_name>[bot]`; check with `github__listCommits`). Explain that a human
+must review the bot's changes and merge. Otherwise, after the review
+comment succeeds, merge with `github__mergePullRequest` using
 `mergeMethod: "squash"` only when there are no material unresolved defects or
 review limitations and merge danger is a reversible, localized change. Leave
 irreversible changes, changes with a broad material blast radius, or materially
