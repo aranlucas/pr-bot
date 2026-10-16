@@ -39,6 +39,11 @@ links the approved package version into `.agents/skills` and `.claude/skills`;
 pnpm ignores its generated links in Git. When upgrading the package, review and
 update its exact version in `permissions` in `pnpm-workspace.yaml` as well.
 
+## Testing
+
+Run `pnpm test` for the Vitest suite. Use `pnpm check` for lint, format,
+typecheck, and tests together.
+
 ## Agent structure
 
 The layout follows the
