@@ -165,18 +165,16 @@ describe("native GitHub webhook integration", () => {
       pull_requests: [{ number: 7 }],
     };
 
-    for (const [event, key] of [
-      ["check_run", "check_run"],
-      ["check_suite", "check_suite"],
-    ]) {
-      const response = await f.dispatch(
-        event,
-        JSON.stringify({ ...envelope, action: "completed", [key]: check }),
-      );
+    const responses = await Promise.all(
+      ["check_run", "check_suite"].map((event) =>
+        f.dispatch(event, JSON.stringify({ ...envelope, action: "completed", [event]: check })),
+      ),
+    );
 
-      assert.strictEqual(response.status, 200);
-    }
-
+    assert.deepEqual(
+      responses.map((response) => response.status),
+      [200, 200],
+    );
     assert.strictEqual(f.deliveries.length, 0);
   });
 
