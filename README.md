@@ -11,7 +11,9 @@ Source: [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
 
 ## Development
 
-Requires Node.js 24, pnpm 12, and Docker for Eve's default local sandbox template.
+Requires Node.js 24 and pnpm 12. The agent uses Eve's just-bash sandbox (pure
+JavaScript, no Docker or Vercel Sandbox usage), since reviews go through the
+GitHub API instead of a checkout.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -55,6 +57,7 @@ agent/
   lib/
     github.ts            # Installation-token provider for the self-managed App
     model.ts             # Model provider configuration
+  sandbox.ts             # just-bash sandbox (no Docker or Vercel Sandbox)
 ```
 
 The extension uses the `code-review` preset plus `mergePullRequest`. Tools are

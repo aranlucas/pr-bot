@@ -24,7 +24,8 @@
     "@octokit/auth-app": "^8.3.1",
     "@vercel/connect": "^2.5.2",
     "ai": "^7.0.142",
-    "eve": "^0.80.0",
+    "eve": "^0.80.1",
+    "just-bash": "^3.6.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -50,5 +51,5 @@
   "engines": {
     "node": "24.x"
   },
-  "packageManager": "pnpm@12.11.2"
+  "packageManager": "pnpm@12.14.0"
 }
