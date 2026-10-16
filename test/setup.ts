@@ -6,6 +6,8 @@ const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 
 process.env.GITHUB_APP_ID = "123";
 
+process.env.GITHUB_APP_INSTALLATION_ID = "99";
+
 process.env.GITHUB_APP_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" });
 
 process.env.GITHUB_WEBHOOK_SECRET = "secret";

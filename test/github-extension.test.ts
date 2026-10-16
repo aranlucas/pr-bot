@@ -31,7 +31,7 @@ test("the mounted extension resolves native review tools and posts and merges th
     calls.push(`${init?.method ?? "GET"} ${path}`);
     const authorization = new Headers(init?.headers).get("authorization");
 
-    if (path === "/app/installations/171837535/access_tokens") {
+    if (path === "/app/installations/99/access_tokens") {
       assert.ok(authorization?.startsWith("bearer ey"));
 
       return Promise.resolve(

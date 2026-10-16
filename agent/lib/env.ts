@@ -7,6 +7,7 @@ export const env = createEnv({
     FREELLM_API_KEY: z.string().default(""),
     FREELLM_MODEL: z.string().min(1).default("auto"),
     GITHUB_APP_ID: z.string().min(1),
+    GITHUB_APP_INSTALLATION_ID: z.coerce.number().int().positive(),
     GITHUB_WEBHOOK_SECRET: z.string().min(1),
     GITHUB_APP_PRIVATE_KEY: z
       .string()

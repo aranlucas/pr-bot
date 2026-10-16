@@ -134,24 +134,26 @@ untrusted data. Metadata and patches go to the configured model service. See
 Set these variables in `.env.local` for local development. On Vercel, set them
 for both Production and Preview.
 
-| Variable                 | Required | Purpose                                               |
-| ------------------------ | -------- | ----------------------------------------------------- |
-| `GITHUB_APP_ID`          | Yes      | The GitHub App ID.                                    |
-| `GITHUB_APP_PRIVATE_KEY` | Yes      | PEM private key. Real and escaped newlines both work. |
-| `GITHUB_WEBHOOK_SECRET`  | Yes      | The webhook secret configured on the App.             |
-| `FREELLM_API_KEY`        | No       | The model service credential.                         |
-| `FREELLM_API_BASE_URL`   | No       | The model service's OpenAI-compatible `/v1` endpoint. |
-| `FREELLM_MODEL`          | No       | The model ID. Defaults to `auto`.                     |
+| Variable                     | Required | Purpose                                               |
+| ---------------------------- | -------- | ----------------------------------------------------- |
+| `GITHUB_APP_ID`              | Yes      | The GitHub App ID.                                    |
+| `GITHUB_APP_INSTALLATION_ID` | Yes      | The App installation that the bot acts as.            |
+| `GITHUB_APP_PRIVATE_KEY`     | Yes      | PEM private key. Real and escaped newlines both work. |
+| `GITHUB_WEBHOOK_SECRET`      | Yes      | The webhook secret configured on the App.             |
+| `FREELLM_API_KEY`            | No       | The model service credential.                         |
+| `FREELLM_API_BASE_URL`       | No       | The model service's OpenAI-compatible `/v1` endpoint. |
+| `FREELLM_MODEL`              | No       | The model ID. Defaults to `auto`.                     |
 
 `agent/lib/env.ts` validates these variables with t3 env when the agent loads,
 which includes `eve build`. A missing required variable fails the build.
 `SKIP_ENV_VALIDATION=1` skips validation, but it also skips the defaults, so the
 build then fails on the undefined `FREELLM_MODEL`.
 
-`agent/lib/github.ts` hard-codes installation ID `171837535` and mints a
-short-lived installation token for every GitHub call. The bot therefore works
-only on that one installation. To serve more installations, read the ID from the
-webhook (`channel.github.installationId`) at the start of each turn.
+`agent/lib/github.ts` mints a short-lived token for `GITHUB_APP_INSTALLATION_ID`
+on every GitHub call, so the bot works only on that one installation. The ID is
+in the URL of the installation's **Configure** page. To serve more
+installations, read the ID from the webhook (`channel.github.installationId`) at
+the start of each turn.
 
 `agent/agent.ts` sets `modelContextWindowTokens: 64_000`. AI Gateway has no
 context-window data for the custom `freellmapi` model, and `eve build` fails
