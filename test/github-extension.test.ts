@@ -31,6 +31,12 @@ test("the mounted extension resolves native review tools and posts and merges th
     calls.push(`${init?.method ?? "GET"} ${path}`);
     const authorization = new Headers(init?.headers).get("authorization");
 
+    if (path === "/repos/acme/app/installation") {
+      assert.ok(authorization?.startsWith("bearer ey"));
+
+      return Promise.resolve(Response.json({ id: 99 }));
+    }
+
     if (path === "/app/installations/99/access_tokens") {
       assert.ok(authorization?.startsWith("bearer ey"));
 
@@ -113,4 +119,6 @@ test("the mounted extension resolves native review tools and posts and merges th
   assert.strictEqual(z.object({ merged: z.boolean() }).parse(merge).merged, true);
   assert.ok(calls.includes("POST /repos/acme/app/issues/42/comments"));
   assert.ok(calls.includes("PUT /repos/acme/app/pulls/42/merge"));
+  // Both calls target acme/app, so the installation is looked up once.
+  assert.strictEqual(calls.filter((call) => call === "GET /repos/acme/app/installation").length, 1);
 });

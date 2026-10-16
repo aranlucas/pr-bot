@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@aranlucas/oxforge": "^0.2.2",
+    "@aranlucas/oxlint-plugin-anti-slop": "^0.1.0",
     "@types/node": "^26.6.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
