@@ -24,7 +24,7 @@ const ctx: ToolContext = {
   messages: [],
 };
 
-test("the mounted extension resolves native review tools and posts and merges through the GitHub App", async () => {
+test("the mounted extension publishes reviews, replies, pause controls, and merges through the GitHub App", async () => {
   const calls: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
@@ -51,6 +51,45 @@ test("the mounted extension resolves native review tools and posts and merges th
     }
 
     assert.strictEqual(authorization, "token installation-token");
+
+    if (path === "/repos/acme/app/pulls/42/reviews") {
+      assert.deepEqual(JSON.parse(z.string().parse(init?.body)), {
+        event: "COMMENT",
+        body: "One concrete defect.",
+        comments: [
+          { path: "app.ts", line: 12, side: "RIGHT", body: "Repeated input charges twice." },
+        ],
+      });
+
+      return Promise.resolve(
+        Response.json({
+          id: 100,
+          state: "COMMENTED",
+          body: "One concrete defect.",
+          user: { login: "pr-bot[bot]" },
+        }),
+      );
+    }
+
+    if (path === "/repos/acme/app/pulls/42/comments/101/replies") {
+      assert.deepEqual(JSON.parse(z.string().parse(init?.body)), {
+        body: "Verified fixed at head-sha.",
+      });
+
+      return Promise.resolve(Response.json({ id: 102, user: { login: "pr-bot[bot]" } }));
+    }
+
+    if (path === "/repos/acme/app/issues/42/labels") {
+      assert.deepEqual(JSON.parse(z.string().parse(init?.body)), { labels: ["pr-bot:paused"] });
+
+      return Promise.resolve(Response.json([{ name: "bug" }, { name: "pr-bot:paused" }]));
+    }
+
+    if (path === "/repos/acme/app/issues/42/labels/pr-bot%3Apaused") {
+      assert.strictEqual(init?.method, "DELETE");
+
+      return Promise.resolve(Response.json([{ name: "bug" }]));
+    }
 
     if (path === "/repos/acme/app/issues/42/comments") {
       assert.deepEqual(JSON.parse(z.string().parse(init?.body)), {
@@ -100,9 +139,49 @@ test("the mounted extension resolves native review tools and posts and merges th
   assert.ok(tools.createOrUpdateFile);
   assert.ok(tools.createBranch);
   assert.ok(tools.createPullRequest);
+  assert.ok(tools.createPullRequestReview);
+  assert.ok(tools.replyToReviewComment);
+  assert.ok(tools.listPullRequestReviewThreads);
+  assert.ok(tools.listIssueComments);
+  assert.ok(tools.getIssue);
+  assert.ok(tools.listLabels);
+  assert.ok(tools.createLabel);
+  assert.ok(tools.addLabels);
+  assert.ok(tools.removeLabel);
   assert.isUndefined(tools.deleteBranch);
+  assert.isUndefined(tools.resolveReviewThread);
 
   const input = { owner: "acme", repo: "app", pullNumber: 42 };
+
+  const review = await tools.createPullRequestReview.execute(
+    {
+      ...input,
+      event: "COMMENT",
+      body: "One concrete defect.",
+      comments: [
+        { path: "app.ts", line: 12, side: "RIGHT", body: "Repeated input charges twice." },
+      ],
+    },
+    { ...ctx, toolName: "github__createPullRequestReview" },
+  );
+
+  assert.strictEqual(z.object({ id: z.number() }).parse(review).id, 100);
+
+  const reply = await tools.replyToReviewComment.execute(
+    { ...input, commentId: 101, body: "Verified fixed at head-sha." },
+    { ...ctx, toolName: "github__replyToReviewComment" },
+  );
+
+  assert.strictEqual(z.object({ id: z.number() }).parse(reply).id, 102);
+
+  await tools.addLabels.execute(
+    { owner: input.owner, repo: input.repo, issueNumber: 42, labels: ["pr-bot:paused"] },
+    { ...ctx, toolName: "github__addLabels" },
+  );
+  await tools.removeLabel.execute(
+    { owner: input.owner, repo: input.repo, issueNumber: 42, label: "pr-bot:paused" },
+    { ...ctx, toolName: "github__removeLabel" },
+  );
 
   const comment = await tools.addPullRequestComment.execute(
     { ...input, body: "No concrete defects found." },
@@ -119,6 +198,6 @@ test("the mounted extension resolves native review tools and posts and merges th
   assert.strictEqual(z.object({ merged: z.boolean() }).parse(merge).merged, true);
   assert.ok(calls.includes("POST /repos/acme/app/issues/42/comments"));
   assert.ok(calls.includes("PUT /repos/acme/app/pulls/42/merge"));
-  // Both calls target acme/app, so the installation is looked up once.
+  // All calls target acme/app, so the installation is looked up once.
   assert.strictEqual(calls.filter((call) => call === "GET /repos/acme/app/installation").length, 1);
-});
+}, 15_000);

@@ -1,8 +1,12 @@
 import { createHmac } from "node:crypto";
 import { assert, beforeEach, describe, test, vi } from "vitest";
 import type { ChannelSendOptions, RouteHandlerArgs, Session } from "eve/channels";
-import type { GitHubChannelState } from "eve/channels/github";
-import channel from "../agent/channels/github.js";
+import type {
+  GitHubChannelState,
+  GitHubConversationKind,
+  GitHubEventContext,
+} from "eve/channels/github";
+import channel, { githubEvents } from "../agent/channels/github.js";
 
 interface Delivery {
   readonly address: string;
@@ -12,6 +16,12 @@ interface Delivery {
 interface PullRequestState {
   state: "open" | "closed";
   merged: boolean;
+}
+
+interface CompletionCase {
+  kind: GitHubConversationKind;
+  message: string;
+  posted: boolean;
 }
 
 const repository = { id: 123, full_name: "Acme/App", name: "App", owner: { login: "Acme" } };
@@ -25,6 +35,68 @@ const envelope = {
 function unexpected(): never {
   throw new Error("Unexpected fixture operation");
 }
+
+test.each([
+  {
+    kind: "pull_request",
+    message: "The PR was already merged. I finish the turn silently.",
+    posted: false,
+  },
+  { kind: "pull_request", message: "The PR is closed. I finish the turn silently.", posted: false },
+  { kind: "pull_request", message: "Review published. No concrete defects found.", posted: false },
+  {
+    kind: "review_thread",
+    message: "The PR was already merged. I finish the turn silently.",
+    posted: false,
+  },
+  { kind: "issue", message: "Here is the requested explanation.", posted: true },
+] satisfies CompletionCase[])(
+  "assistant completion on $kind: $message",
+  async ({ kind, message, posted }) => {
+    const post = vi.fn().mockResolvedValue({ id: 1 });
+
+    const context: GitHubEventContext = {
+      conversation: {
+        kind,
+        issueNumber: kind === "issue" ? 7 : null,
+        pullRequestNumber: kind === "issue" ? null : 7,
+      },
+      repository: { id: 123, fullName: "Acme/App", name: "App", owner: "Acme", private: false },
+      github: {
+        installationId: 99,
+        repository: { id: 123, fullName: "Acme/App", name: "App", owner: "Acme", private: false },
+        request: unexpected,
+      },
+      thread: { kind, post, react: unexpected },
+      state: {
+        baseRef: null,
+        baseSha: null,
+        checkoutPath: null,
+        conversationKind: kind,
+        defaultBranch: null,
+        headRef: null,
+        headSha: null,
+        installationId: 99,
+        issueNumber: kind === "issue" ? 7 : null,
+        owner: "Acme",
+        pullRequestNumber: kind === "issue" ? null : 7,
+        repo: "App",
+        repositoryId: 123,
+        reviewCommentId: null,
+        reviewThreadRootCommentId: null,
+        triggeringCommentId: null,
+        triggeringUserLogin: null,
+      },
+    };
+
+    await githubEvents["message.completed"](
+      { finishReason: "stop", message, sequence: 1, stepIndex: 1, turnId: "turn" },
+      context,
+    );
+
+    assert.deepEqual(post.mock.calls, posted ? [[message]] : []);
+  },
+);
 
 function fixture() {
   const deliveries: Delivery[] = [];
@@ -141,7 +213,15 @@ describe("native GitHub webhook integration", () => {
       JSON.stringify({
         ...envelope,
         action: "opened",
-        pull_request: { number: 7, head: { sha: "head" }, base: { sha: "base" } },
+        pull_request: {
+          number: 7,
+          state: "open",
+          merged: false,
+          draft: false,
+          labels: [],
+          head: { sha: "head" },
+          base: { sha: "base" },
+        },
       }),
     );
 
@@ -214,25 +294,134 @@ describe("native GitHub webhook integration", () => {
     assert.strictEqual(f.deliveries.length, 0);
   });
 
-  test("ignores pushes to an open PR", async () => {
+  test.each(["opened", "reopened", "ready_for_review", "synchronize"])(
+    "reviews an open PR on %s",
+    async (action) => {
+      const f = fixture();
+
+      const response = await f.dispatch(
+        "pull_request",
+        JSON.stringify({
+          ...envelope,
+          action,
+          pull_request: {
+            number: 7,
+            state: "open",
+            merged: false,
+            draft: false,
+            labels: [],
+            head: { sha: "head" },
+            base: { sha: "base" },
+          },
+        }),
+      );
+
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(f.deliveries.length, 1);
+      assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
+      assert.ok(
+        f.deliveries[0].options.context?.some((entry) =>
+          entry.includes(`Automatic review: ${action}, event head head`),
+        ),
+      );
+    },
+  );
+
+  test.each([
+    { action: "synchronize", state: "open", merged: false, draft: true, labels: [] },
+    {
+      action: "opened",
+      state: "open",
+      merged: false,
+      draft: false,
+      labels: [{ name: "pr-bot:paused" }],
+    },
+    {
+      action: "synchronize",
+      state: "open",
+      merged: false,
+      draft: false,
+      labels: [{ name: "pr-bot:paused" }],
+    },
+    { action: "reopened", state: "closed", merged: false, draft: false, labels: [] },
+    {
+      action: "synchronize",
+      state: "open",
+      merged: false,
+      draft: false,
+      labels: [{ name: "PR-Bot:Paused" }],
+    },
+    { action: "synchronize", state: "closed", merged: true, draft: false, labels: [] },
+    { action: "closed", state: "closed", merged: true, draft: false, labels: [] },
+    { action: "labeled", state: "open", merged: false, draft: false, labels: [] },
+    { action: "edited", state: "open", merged: false, draft: false, labels: [] },
+  ])(
+    "does not automatically review $action with state=$state, merged=$merged, draft=$draft, labels=$labels",
+    async ({ action, ...pr }) => {
+      const f = fixture();
+
+      const response = await f.dispatch(
+        "pull_request",
+        JSON.stringify({
+          ...envelope,
+          action,
+          pull_request: { number: 7, ...pr, head: { sha: "head" }, base: { sha: "base" } },
+        }),
+      );
+
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(f.deliveries.length, 0);
+    },
+  );
+
+  test("a mention can request a review on a paused PR", async () => {
     const f = fixture();
 
     const response = await f.dispatch(
-      "pull_request",
+      "issue_comment",
       JSON.stringify({
         ...envelope,
-        action: "synchronize",
-        pull_request: {
+        action: "created",
+        issue: {
           number: 7,
           state: "open",
-          merged: false,
-          head: { sha: "head" },
-          base: { sha: "base" },
+          labels: [{ name: "pr-bot:paused" }],
+          pull_request: { url: "https://api.github.com/repos/Acme/App/pulls/7" },
+        },
+        comment: { id: 1, body: "@aranlucas-pr-bot review only", user: envelope.sender },
+      }),
+    );
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(f.deliveries.length, 1);
+    assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
+  });
+
+  test("an inline mention follows the original finding's review thread", async () => {
+    const f = fixture();
+
+    const response = await f.dispatch(
+      "pull_request_review_comment",
+      JSON.stringify({
+        ...envelope,
+        action: "created",
+        pull_request: { number: 7, head: { sha: "head" }, base: { sha: "base" } },
+        comment: {
+          id: 12,
+          in_reply_to_id: 10,
+          body: "@aranlucas-pr-bot explain this finding",
+          user: envelope.sender,
+          path: "app.ts",
         },
       }),
     );
 
     assert.strictEqual(response.status, 200);
-    assert.strictEqual(f.deliveries.length, 0);
+    assert.strictEqual(f.deliveries.length, 1);
+    assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7:review-comment:10");
+    assert.strictEqual(
+      f.deliveries[0].options.auth?.attributes?.conversation_kind,
+      "review_thread",
+    );
   });
 });
