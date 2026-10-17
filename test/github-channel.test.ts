@@ -26,6 +26,14 @@ interface CompletionCase {
 
 const repository = { id: 123, full_name: "Acme/App", name: "App", owner: { login: "Acme" } };
 
+const changedFile = {
+  filename: "app.ts",
+  status: "modified",
+  additions: 1,
+  deletions: 1,
+  patch: "@@ -1 +1 @@\n-export const enabled = false;\n+export const enabled = true;",
+};
+
 const envelope = {
   repository,
   installation: { id: 99 },
@@ -180,28 +188,31 @@ describe("native GitHub webhook integration", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
 
-      if (path.includes("/access_tokens")) {
-        return Promise.resolve(
-          Response.json({
-            token: "installation-token",
-            expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-          }),
-        );
+      switch (path) {
+        case "/app/installations/99/access_tokens":
+          return Promise.resolve(
+            Response.json({
+              token: "installation-token",
+              expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+            }),
+          );
+        case "/repos/Acme/App/pulls/7":
+          return Promise.resolve(
+            Response.json({
+              number: 7,
+              title: "Fix",
+              ...pullRequest,
+              head: { sha: "head" },
+              base: { sha: "base" },
+            }),
+          );
+        case "/repos/Acme/App/pulls/7/files":
+          return Promise.resolve(Response.json([changedFile]));
+        case "/repos/Acme/App/compare/base...head":
+          return Promise.resolve(Response.json({ files: [changedFile] }));
+        default:
+          throw new Error(`Unexpected GitHub API request: ${path}`);
       }
-
-      return Promise.resolve(
-        Response.json(
-          path.includes("/compare/")
-            ? { files: [] }
-            : {
-                number: 7,
-                title: "Fix",
-                ...pullRequest,
-                head: { sha: "head" },
-                base: { sha: "base" },
-              },
-        ),
-      );
     });
   });
 
@@ -259,10 +270,16 @@ describe("native GitHub webhook integration", () => {
   });
 
   test("the native channel rejects forged webhook signatures", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const f = fixture();
     const response = await f.dispatch("pull_request", JSON.stringify(envelope), "forged");
     assert.strictEqual(response.status, 401);
     assert.strictEqual(f.deliveries.length, 0);
+    assert.strictEqual(warn.mock.calls.length, 1);
+    assert.strictEqual(
+      warn.mock.calls[0][0],
+      "[eve:github.channel] github inbound verification failed",
+    );
   });
 
   test.each([
@@ -322,6 +339,12 @@ describe("native GitHub webhook integration", () => {
       assert.ok(
         f.deliveries[0].options.context?.some((entry) =>
           entry.includes(`Automatic review: ${action}, event head head`),
+        ),
+      );
+      assert.ok(
+        f.deliveries[0].options.context?.some(
+          (entry) =>
+            entry.includes(changedFile.filename) && entry.includes("+export const enabled = true;"),
         ),
       );
     },
@@ -395,6 +418,12 @@ describe("native GitHub webhook integration", () => {
     assert.strictEqual(response.status, 200);
     assert.strictEqual(f.deliveries.length, 1);
     assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
+    assert.ok(
+      f.deliveries[0].options.context?.some(
+        (entry) =>
+          entry.includes(changedFile.filename) && entry.includes("+export const enabled = true;"),
+      ),
+    );
   });
 
   test("an inline mention follows the original finding's review thread", async () => {
