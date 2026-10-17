@@ -57,6 +57,8 @@ agent/
     github.ts            # GitHub Tools extension mount
   instrumentation/
     runtime.ts           # Metadata-only lifecycle logs
+  hooks/
+    release-sandbox.ts   # Stop sandbox compute while the agent is idle
   lib/
     env.ts               # Environment validation (t3 env)
     github.ts            # Installation-token provider for the GitHub App
@@ -119,6 +121,8 @@ keep the bot from opening PRs, add `createBranch` and `createPullRequest` to
 Each turn checks the repository out into a [Vercel Sandbox](https://eve.dev/docs/sandbox/vercel)
 at `/workspace`. The built-in `bash`, `read_file`, and `write_file` tools run
 there. `eve build` prepares the sandbox snapshot, and Vercel bills sandbox usage.
+When a session becomes idle, `agent/hooks/release-sandbox.ts` stops its sandbox
+compute. The persistent filesystem remains available for a later turn.
 The sandbox has no `node_modules`, so the agent must run
 `pnpm install --frozen-lockfile` before it runs `pnpm format` or `pnpm check`.
 
@@ -129,6 +133,16 @@ checkout also needs a sandbox with a network policy, which just-bash lacks.
 An existing Eve session cannot switch sandbox providers. After you change
 `agent/sandbox.ts`, old issue and PR threads fail with `Session checkpoint
 sandbox provider state is incompatible`. Test the change in a new issue or PR.
+
+If a build fails preparing a snapshot with `429 Concurrency limit exceeded`,
+the build needs a free Vercel Sandbox slot. Inspect the project's running
+sandboxes and their `sessionId` tags, match those to Agent Runs, and stop
+compute for sessions confirmed to be idle before retrying `pnpm build`.
+Active reviews and other concurrent builds also consume slots. The idle cleanup
+hook only applies to runs on the deployment containing it; older runs need
+separate inspection. Keep sandbox preparation enabled for deployment:
+`--skip-sandbox-prewarm` produces compile-check output without guaranteeing
+the snapshot required by production.
 
 ## Review procedure
 
