@@ -53,6 +53,7 @@ agent/
     github.ts            # Signed GitHub App webhook channel
   connections/
     context7.ts          # Library API discovery and version-specific docs
+    freellm.ts           # Public web search through FreeLLMAPI MCP
   extensions/
     github.ts            # GitHub Tools extension mount
   instrumentation/
@@ -194,6 +195,26 @@ limitation only when it leaves a specific material risk unresolved.
 Set `CONTEXT7_API_KEY` for documentation lookups; a missing key leaves the rest
 of the bot available and returns an error when the connection is used.
 
+The FreeLLMAPI MCP connection exposes only `freellm__web_search` for public
+documentation, release notes, and upstream issues beyond Context7. Eve discovers
+the server's tool schema and sends `FREELLM_API_KEY` as a Bearer token; the model
+never receives the credential. Routing controls, cache writes, diagnostics, and
+model delegation tools are excluded. Queries contain public library questions,
+without private code, PR text, or credentials. Results provide source URLs and
+short extracts, and the bot cites sources for claims supported by search.
+
+Enable **MCP server** under **Keys → Agent compatibility** in the FreeLLMAPI
+dashboard. Configure at least one search provider key and enable its engine under
+**Models → Search**. Search uses those providers' quotas separately from model
+tokens. Search reuses `FREELLM_API_KEY` and connects to `/mcp` on
+`FREELLM_API_BASE_URL`'s origin; no additional environment variables are needed.
+FreeLLMAPI requires the `initialize` handshake, so protocol discovery is disabled
+for this connection. Disabled MCP or unavailable search providers surface as
+lookup errors when search is used. A missing API key fails environment validation
+at startup.
+The same search service is also available through `POST /v1/search`; the bot
+uses Eve's native MCP connection instead of a custom HTTP tool.
+
 Reviews state the assessed behavior, concrete findings, verification evidence,
 merge danger, and the next action. Review depth follows the size of the change,
 and style preferences do not block a merge. PR text and tool results are
@@ -210,7 +231,7 @@ for both Production and Preview.
 | `GITHUB_APP_ID`          | Yes      | The GitHub App ID.                                    |
 | `GITHUB_APP_PRIVATE_KEY` | Yes      | PEM private key. Real and escaped newlines both work. |
 | `GITHUB_WEBHOOK_SECRET`  | Yes      | The webhook secret configured on the App.             |
-| `FREELLM_API_KEY`        | No       | The model service credential.                         |
+| `FREELLM_API_KEY`        | Yes      | The model and search service credential.              |
 | `FREELLM_API_BASE_URL`   | No       | The model service's OpenAI-compatible `/v1` endpoint. |
 | `FREELLM_MODEL`          | No       | The model ID. Defaults to `auto`.                     |
 | `CONTEXT7_API_KEY`       | No       | Context7 API key for library documentation lookups.   |

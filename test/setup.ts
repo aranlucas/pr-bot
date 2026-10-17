@@ -6,6 +6,8 @@ const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 
 process.env.GITHUB_APP_ID = "123";
 
+process.env.FREELLM_API_KEY = "test-model-key";
+
 process.env.GITHUB_APP_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" });
 
 process.env.GITHUB_WEBHOOK_SECRET = "secret";
