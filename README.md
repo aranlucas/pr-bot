@@ -53,6 +53,8 @@ agent/
     github.ts            # Signed GitHub App webhook channel
   extensions/
     github.ts            # GitHub Tools extension mount
+  instrumentation/
+    runtime.ts           # Metadata-only lifecycle logs
   lib/
     env.ts               # Environment validation (t3 env)
     github.ts            # Installation-token provider for the GitHub App
@@ -223,3 +225,45 @@ point a fixed alias at each new preview:
 ```sh
 vercel alias set <preview-url> pr-bot-preview-aranlucas.vercel.app
 ```
+
+## Debug a review run
+
+`agent/instrumentation/runtime.ts` uses Eve's
+[lifecycle instrumentation](https://eve.dev/docs/observability/instrumentation)
+to write JSON lines with `source: "pr-bot.runtime"`. Logs include session,
+turn, step, attempt, and operation IDs. Model calls report elapsed time, finish
+reason, and token usage. Tool calls report their names, elapsed time, outcomes,
+and framework error codes when available. Failures and returned tool errors go
+to stderr; other events go to stdout.
+
+Find the review's session ID in Vercel's Agent Runs view or CLI, then search
+runtime logs for that ID. Pass an explicit project and team because worktrees
+may have no local Vercel link:
+
+```sh
+vercel agent-runs list --project pr-bot --scope aranlucas-projects --since 1h --json
+vercel logs --project pr-bot --scope aranlucas-projects --since 30m --query 'pr-bot.runtime' --json
+vercel logs --project pr-bot --scope aranlucas-projects --since 30m --query '<session-id>' --json
+```
+
+Use `operationId` to match a start with its completion or failure. A model
+start without a terminal event identifies an unfinished provider call; a tool
+start identifies an unfinished tool call. A step failure followed by a higher
+`attemptIndex` identifies a retry. `input.requested` records whether the agent
+is waiting on a question, approval, or session limit. `session.waiting` is
+resumable; `session.completed` and `session.failed` are terminal. A completed
+review-posting tool call is evidence that the tool finished; confirm the review
+on GitHub before treating the review as delivered. Log lines may repeat during
+durable replay, so they are not a reliable count of executions.
+
+The runtime log provider explicitly disables input and output capture for
+every audience. It never logs prompts, review text, tool arguments or results,
+raw errors, or credentials. Failure details are limited to available framework
+error codes. These logs do not enable full Agent Runs transcripts or change
+Eve's OpenTelemetry capture and Workflow retention policies. Existing runs
+remain on their original deployment and will not gain the new logs.
+
+Eve exports to Agent Runs on Vercel by default. Its
+[Agent Runs guide](https://eve.dev/docs/observability/agent-runs) explains the
+separate Vercel sampling requirement: existing projects need a matching tracing
+sampling rule. Lifecycle logs do not depend on Agent Runs trace visibility.
