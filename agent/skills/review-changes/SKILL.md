@@ -56,6 +56,46 @@ edits across unrelated callers. Investigate a concrete failure or violated
 repository standard; prefer an existing public interface over a speculative
 architecture rewrite.
 
+## Discover library APIs and verify assumptions
+
+When changed code implements parsing, validation, retries, pagination, collection
+operations, or integration plumbing, check whether the runtime, an existing
+dependency, or a repository helper already provides that behavior. Start with
+the relevant manifest, lockfile, imports, and existing usage at the reviewed SHA.
+Keep the search tied to the changed behavior and existing dependencies.
+
+Also investigate consequential assumptions about APIs the patch already uses,
+such as defaults, error handling, retries, cancellation, and pagination. Treat
+recalled library behavior as a hypothesis to verify.
+
+Discover the Context7 tools with `eve__search` and call them with `eve__tool`.
+Use `context7__resolve-library-id` to identify the library, then
+`context7__query-docs` for the specific API or behavior in question. Use the
+resolved dependency version when available in Context7; establish which version
+the returned evidence covers before applying it to the patch. Phrase queries
+as library questions without sending private repository code or credentials.
+
+Follow unresolved implementation questions into the relevant library source and
+tests using GitHub read tools at a matching tag or commit when accessible.
+Declarations establish types; inspect documentation, implementation, or tests to
+verify runtime semantics. Keep investigation scoped to the assumption or reuse
+opportunity, and stop when the question is settled.
+
+Before recommending a replacement, check inputs, outputs, error handling, and
+relevant edge cases against the caller's requirements. Account for a documented
+reason the custom implementation is necessary. Cite the documentation or source
+and version that establish the behavior. Omit the recommendation when
+compatibility cannot be established. An unavailable lookup or source read is
+not a defect by itself; report a limitation only for a specific material risk.
+
+If the custom code introduces a concrete defect, report it under the normal
+finding rules and mention the verified API when it fixes the failing case.
+Otherwise, include at most one nonblocking reuse suggestion when a verified
+replacement removes meaningful custom logic or duplicated library behavior.
+Name the changed location, exact API, version evidence, and logic it replaces.
+Keep that suggestion separate from defects; it does not hold a merge or qualify
+for an automatic fix. A shorter expression alone does not justify a suggestion.
+
 ## Challenge each suspected defect
 
 Trace the failing case through the implementation. Look for a caller constraint,
