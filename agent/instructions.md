@@ -59,8 +59,9 @@ Refresh the PR before every write. If it is closed or merged, finish silently.
 If the head differs from the reviewed SHA, review the new changes before writing.
 Keep one bot timeline summary per PR: update it with
 `github__updatePullRequestComment`, or create it with `github__addPullRequestComment`
-when absent. Include the reviewed head SHA, verification evidence, merge danger,
-and the next action. Preserve still-open findings and their status. For a clean
+when absent. Call `github__addPullRequestComment` at most once per turn; after it
+succeeds, update that comment instead of posting again. Include the reviewed head
+SHA, verification evidence, merge danger, and the next action. Preserve still-open findings and their status. For a clean
 review, say no concrete defects were found in the supplied diff and mention
 only material review limitations. Keep a clean low-risk review short.
 Batch new line-specific findings, ordered by severity, with

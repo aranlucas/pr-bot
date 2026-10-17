@@ -99,10 +99,15 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
       return Promise.resolve(
         Response.json({
           id: 1,
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-1",
           body: "No concrete defects found.",
           user: { login: "pr-bot[bot]" },
         }),
       );
+    }
+
+    if (path === "/repos/acme/app/issues/43/comments") {
+      return Promise.resolve(Response.json({ message: "Not Found" }, { status: 404 }));
     }
 
     if (path === "/repos/acme/app/pulls/42/merge") {
@@ -189,6 +194,28 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
   );
 
   assert.strictEqual(z.object({ id: z.number() }).parse(comment).id, 1);
+  assert.include(tools.addPullRequestComment.description, "at most once per PR");
+  // The model sees the posted comment as the summary to update, not a payload to repeat.
+  assert.deepEqual(await tools.addPullRequestComment.toModelOutput?.(comment), {
+    type: "text",
+    value:
+      "Posted the PR summary as comment 1 (https://github.com/acme/app/pull/42#issuecomment-1). Do not call addPullRequestComment again for this PR; change the summary with updatePullRequestComment using commentId 1.",
+  });
+
+  const failed = await tools.addPullRequestComment.execute(
+    { ...input, pullNumber: 43, body: "No concrete defects found." },
+    ctx,
+  );
+
+  // A failed post keeps GitHub's error so the model does not treat it as published.
+  assert.deepEqual(await tools.addPullRequestComment.toModelOutput?.(failed), {
+    type: "json",
+    value: failed,
+  });
+  assert.strictEqual(
+    z.object({ error: z.object({ code: z.string() }) }).parse(failed).error.code,
+    "github_tools.NOT_FOUND",
+  );
 
   const merge = await tools.mergePullRequest.execute(
     { ...input, mergeMethod: "squash" },

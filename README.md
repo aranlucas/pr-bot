@@ -107,6 +107,13 @@ to `'auto'`. Both call an AI Gateway evaluation model that free-tier Vercel team
 cannot use. When that call fails, the extension falls back to the read-only
 `repo-explorer` preset.
 
+An `overrides` entry narrows `github__addPullRequestComment` to the bot's single
+timeline summary. After a successful post, the model sees only the comment ID and
+an instruction to change it with `github__updatePullRequestComment`. A model once
+repeated a successful call and posted the same summary twice. The extension
+cannot cap calls per turn, and an approval gate would park the webhook turn, so
+this reduces the repeat without preventing it.
+
 The event filters and suppression of automatic PR assistant replies run in code.
 Review decisions, pause/resume commands, incremental-review deduplication, and
 pre-write freshness checks are instructions to the model. GitHub permissions
