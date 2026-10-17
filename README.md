@@ -20,8 +20,10 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Eve loads `.env.local` and listens on port 2000. Interactive sessions are
-disabled, so GitHub webhooks start every turn.
+The dev, build, and start scripts use dotenvx to load `.env.local`. Existing
+shell variables take precedence, and the file can be omitted when variables
+are supplied by the host. Eve listens on port 2000 during development.
+Interactive sessions are disabled, so GitHub webhooks start every turn.
 
 Oxforge supplies the shared Oxlint and Oxfmt policies. Husky runs lint-staged,
 type checking, and tests before each commit. GitHub Actions runs the same checks.
@@ -33,7 +35,11 @@ also update its exact version in `permissions` in `pnpm-workspace.yaml`.
 
 ## Testing
 
-Run `pnpm test` for the Vitest suite. Use `pnpm check` for lint, format,
+Run `pnpm test` for the Vitest suite. The command uses dotenvx to load the
+committed `.env.test` fixtures, overriding matching shell variables. Tests
+generate a temporary RSA private key for GitHub App authentication; no local
+credentials are needed. The app's Zod validation still runs during tests.
+Use `pnpm check` for lint, format,
 typecheck, and tests together. Run `pnpm build` to confirm that `eve build`
 compiles the agent and prepares the sandbox snapshot.
 
@@ -60,7 +66,7 @@ agent/
   hooks/
     release-sandbox.ts   # Stop sandbox compute while the agent is idle
   lib/
-    env.ts               # Environment validation (t3 env)
+    env.ts               # Environment validation and defaults (Zod)
     github.ts            # Installation-token provider for the GitHub App
     model.ts             # Model provider configuration
   skills/
@@ -208,10 +214,11 @@ for both Production and Preview.
 | `FREELLM_MODEL`          | No       | The model ID. Defaults to `auto`.                     |
 | `CONTEXT7_API_KEY`       | No       | Context7 API key for library documentation lookups.   |
 
-`agent/lib/env.ts` validates these variables with t3 env when the agent loads,
-which includes `eve build`. A missing required variable fails the build.
-`SKIP_ENV_VALIDATION=1` skips validation, but it also skips the defaults, so the
-build then fails on the undefined `FREELLM_MODEL`.
+`agent/lib/env.ts` validates these variables with Zod when the agent loads,
+which includes `eve build`. Empty values count as unset, optional model settings
+receive their defaults, and escaped newlines in the private key are normalized.
+A missing required variable fails startup or the build. Validation always runs;
+`SKIP_ENV_VALIDATION` is no longer supported.
 
 `agent/lib/github.ts` mints a short-lived installation token for every GitHub
 call. The extension passes the call's `owner` and `repo` to the token provider,
