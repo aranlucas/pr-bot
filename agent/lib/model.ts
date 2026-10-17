@@ -1,4 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { wrapLanguageModel } from "ai";
 import { env } from "@/env";
 
 const freellmapi = createOpenAICompatible({
@@ -14,4 +15,18 @@ const freellmapi = createOpenAICompatible({
   },
 });
 
-export const reviewModel = freellmapi(env.FREELLM_MODEL);
+export const reviewModel = wrapLanguageModel({
+  model: freellmapi(env.FREELLM_MODEL),
+  middleware: {
+    transformParams: ({ params }) =>
+      Promise.resolve({
+        ...params,
+        // Leave time for compaction, tools, and failure reporting within the
+        // 300-second function limit, while preserving Eve's cancellation signal.
+        abortSignal: AbortSignal.any([
+          ...(params.abortSignal ? [params.abortSignal] : []),
+          AbortSignal.timeout(90_000),
+        ]),
+      }),
+  },
+});
