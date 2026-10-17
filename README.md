@@ -63,28 +63,41 @@ agent/
     model.ts             # Model provider configuration
   skills/
     review-changes/      # Repository-specific review criteria
+    review-follow-up/    # Questions, corrections, verification, and review controls
 ```
 
 ## What starts a turn
 
 The GitHub channel in `agent/channels/github.ts` verifies each webhook signature
-and starts a turn for two events:
+and starts a turn for these events:
 
 - A comment on an issue or PR that contains `@aranlucas-pr-bot`. GitHub does not
   link this text as a mention, but Eve matches it as plain text.
-- A PR that is opened (`pull_request.opened`).
+- An open, non-draft PR that is opened, reopened, marked ready for review, or
+  updated with new commits (`opened`, `reopened`, `ready_for_review`, `synchronize`).
 
-Pushes, reopened PRs, and finished check runs do not start a turn. The channel
-does not check whether a PR is closed or merged before it starts a turn.
-`agent/instructions.md` asks the agent to stop silently on closed and merged PRs.
+Automatic PR events skip payloads that are draft, closed, merged, or labeled
+`pr-bot:paused`. Finished check runs do not start a turn. Mentions still start
+turns while paused. The instructions refresh the current PR and labels because
+an event can become stale before the turn runs; closed and merged PRs end silently.
+The channel suppresses automatic assistant-message replies on PR timelines and
+review threads. Review comments use the explicit GitHub extension tools, so a
+final response explaining a silent exit is kept off the PR. Issue conversations
+still receive assistant replies.
 
 ## What the bot can do
 
 The extension loads the `code-review` and `pr-author` presets plus
-`mergePullRequest`, and excludes `deleteBranch`. The bot can read code, post
+`mergePullRequest`, timeline-comment reads, issue-label reads, and label controls.
+It excludes `deleteBranch` and `resolveReviewThread`. The bot can read code, post
 comments and reviews, commit files with `github__createOrUpdateFile`, create
 branches, open PRs, and merge PRs. Tools are namespaced, such as
 `github__getPullRequestContext` and `github__mergePullRequest`.
+
+The installed `resolveReviewThread` tool accepts only a thread ID. This app's
+token provider needs `owner` and `repo` to select an installation, so that tool
+is excluded until the extension can carry repository context for it. The bot can
+verify a fix and reply in its review thread; authors resolve the conversation.
 
 `requireApproval: false` lets every write run without a prompt, because no one
 is present to approve a webhook turn. Don't switch `preset` or `requireApproval`
@@ -92,9 +105,11 @@ to `'auto'`. Both call an AI Gateway evaluation model that free-tier Vercel team
 cannot use. When that call fails, the extension falls back to the read-only
 `repo-explorer` preset.
 
-GitHub repository permissions and branch protection are the only enforced
-limits. The rules in `agent/instructions.md` are instructions to the model, and
-the model does not always follow them. The instructions forbid the bot to merge
+The event filters and suppression of automatic PR assistant replies run in code.
+Review decisions, pause/resume commands, incremental-review deduplication, and
+pre-write freshness checks are instructions to the model. GitHub permissions
+and branch protection enforce the limits on extension writes. The model does
+not always follow instructions. The instructions forbid the bot to merge
 a PR that contains its own commits, yet it opened and merged its own #23. To
 keep the bot from opening PRs, add `createBranch` and `createPullRequest` to
 `exclude`.
@@ -116,6 +131,25 @@ An existing Eve session cannot switch sandbox providers. After you change
 sandbox provider state is incompatible`. Test the change in a new issue or PR.
 
 ## Review procedure
+
+Mention the bot with the outcome you need:
+
+- “Explain this finding” or “that's intentional; reconsider” keeps the response
+  in the existing review thread and rechecks the evidence.
+- “I fixed it; verify” checks the latest head against the original failure case
+  and reports whether it is fixed, remains, or needs specific evidence.
+- “Review only” publishes a review without committing or merging in that turn.
+- “Fix this finding” follows the existing localized-fix policy.
+- “Pause reviews” adds `pr-bot:paused`; “resume reviews” removes only that label.
+  Resume enables the next supported PR event. A manual review while paused is
+  review-only. Labels remain visible and can also be managed directly on GitHub.
+
+Questions and verification requests end after the requested answer; they do not
+start a fix or merge. The bot reads prior summaries and review threads when
+reviewing updates, keeps one timeline summary, batches new inline findings, and
+is instructed to avoid repeating unchanged feedback. Review history stays in
+GitHub rather than a separate database. A freshness read narrows the race with
+concurrent changes but cannot make the subsequent GitHub write atomic.
 
 `agent/instructions.md` asks the agent to post findings before it merges, to
 refresh the PR, review, and CI state, and to merge only a ready change. For a
@@ -202,8 +236,9 @@ identity or `unknown`.
 1. Create a GitHub App with these repository permissions: Contents, Issues, and
    Pull requests read and write. Checks and Commit statuses read. Metadata read
    is included automatically.
-2. Subscribe to **Issue comment**, **Issues**, and **Pull request** events.
-   Comment-started turns need **Issue comment**.
+2. Subscribe to **Issue comment**, **Pull request review comment**, **Issues**,
+   and **Pull request** events. Timeline mentions need **Issue comment**;
+   inline finding replies need **Pull request review comment**.
 3. Set the webhook URL to `https://YOUR-DEPLOYMENT/eve/v1/github`. The root path
    returns 404 for webhooks.
 4. Install the App on the repositories the bot manages.
