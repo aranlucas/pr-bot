@@ -1,6 +1,125 @@
-import { assert, describe, test, vi } from "vitest";
+import { assert, afterEach, describe, test, vi } from "vitest";
 import { generateText, isStepCount, streamText, tool, ToolLoopAgent } from "ai";
 import { z } from "zod";
+
+describe.each(["deadline", "caller cancellation"])("model %s", (stop) => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test.each(["headers", "body", "ongoing output"])(
+    "aborts a slow provider before the function deadline (%s)",
+    async (phase) => {
+      vi.useFakeTimers();
+      // Native AbortSignal timers do not use Vitest's clock.
+      vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new DOMException("Model deadline", "TimeoutError")), ms);
+
+        return controller.signal;
+      });
+      vi.resetModules();
+      const { reviewModel } = await import("@/model");
+      let providerAborted = false;
+      vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+        const signal = init?.signal;
+        assert.ok(signal);
+
+        if (phase === "headers") {
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                providerAborted = true;
+                reject(
+                  signal.reason instanceof Error ? signal.reason : new Error("Provider aborted"),
+                );
+              },
+              { once: true },
+            );
+          });
+        }
+
+        return Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                const interval =
+                  phase === "ongoing output"
+                    ? setInterval(() => {
+                        const chunk = {
+                          id: "slow",
+                          created: 1,
+                          model: "auto",
+                          choices: [
+                            { index: 0, delta: { content: "Still working" }, finish_reason: null },
+                          ],
+                        };
+
+                        controller.enqueue(
+                          new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`),
+                        );
+                      }, 10_000)
+                    : undefined;
+
+                signal.addEventListener(
+                  "abort",
+                  () => {
+                    providerAborted = true;
+                    clearInterval(interval);
+                    controller.error(signal.reason);
+                  },
+                  { once: true },
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+        );
+      });
+
+      const errors: unknown[] = [];
+      let settled = false;
+      const caller = new AbortController();
+
+      if (stop === "caller cancellation") {
+        setTimeout(() => caller.abort(), 5_000);
+      }
+
+      const result = streamText({
+        model: reviewModel,
+        prompt: "Review this change",
+        abortSignal: caller.signal,
+      });
+
+      const consumed = (async () => {
+        try {
+          for await (const part of result.fullStream) {
+            if (part.type === "error") {
+              errors.push(part.error);
+            }
+          }
+        } catch (error) {
+          errors.push(error);
+        } finally {
+          settled = true;
+        }
+      })();
+
+      await vi.advanceTimersByTimeAsync(stop === "deadline" ? 89_999 : 4_999);
+      assert.isFalse(providerAborted);
+      await vi.advanceTimersByTimeAsync(1);
+      assert.ok(providerAborted, "the provider must be aborted before Vercel kills the function");
+      assert.ok(settled, "the model stream must settle so Eve can record the failure");
+      await consumed;
+      assert.strictEqual(vi.mocked(fetch).mock.calls.length, 1);
+
+      if (stop === "deadline") {
+        assert.isNotEmpty(errors);
+      }
+    },
+  );
+});
 
 describe.each([
   {
