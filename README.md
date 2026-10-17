@@ -51,6 +51,8 @@ agent/
   channels/
     eve.ts               # Health and API surface; interactive sessions disabled
     github.ts            # Signed GitHub App webhook channel
+  connections/
+    context7.ts          # Library API discovery and version-specific docs
   extensions/
     github.ts            # GitHub Tools extension mount
   instrumentation/
@@ -122,8 +124,20 @@ same-repository PR's head branch and report the commit instead of merging.
 
 The `review-changes` skill loads repository-specific criteria from the root
 `coding-standards.md` on the PR's base branch. It checks whether tests exercise
-meaningful behavior and assesses reversibility and blast radius. The agent is
-asked to leave irreversible, broad, or uncertain changes for a human to merge.
+meaningful behavior, looks for custom logic covered by existing library APIs,
+and assesses reversibility and blast radius. Reuse suggestions identify a
+verified API compatible with the resolved dependency version and stay
+nonblocking unless the custom code has a concrete defect. The agent is asked to
+leave irreversible, broad, or uncertain changes for a human to merge.
+
+The native Eve MCP connection exposes Context7's `resolve-library-id` and
+`query-docs` tools. Reviews use them to discover existing APIs and check library
+assumptions, then follow unresolved implementation questions into source and
+tests with GitHub read tools when accessible. Queries contain library questions,
+without private repository code or credentials. A failed lookup is a review
+limitation only when it leaves a specific material risk unresolved.
+Set `CONTEXT7_API_KEY` for documentation lookups; a missing key leaves the rest
+of the bot available and returns an error when the connection is used.
 
 Reviews state the assessed behavior, concrete findings, verification evidence,
 merge danger, and the next action. Review depth follows the size of the change,
@@ -144,6 +158,7 @@ for both Production and Preview.
 | `FREELLM_API_KEY`        | No       | The model service credential.                         |
 | `FREELLM_API_BASE_URL`   | No       | The model service's OpenAI-compatible `/v1` endpoint. |
 | `FREELLM_MODEL`          | No       | The model ID. Defaults to `auto`.                     |
+| `CONTEXT7_API_KEY`       | No       | Context7 API key for library documentation lookups.   |
 
 `agent/lib/env.ts` validates these variables with t3 env when the agent loads,
 which includes `eve build`. A missing required variable fails the build.

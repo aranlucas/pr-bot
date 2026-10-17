@@ -6,6 +6,13 @@ identify the changed behavior, evidence, and consequence.
 - Keep GitHub operations in the native Eve channel and GitHub Tools extension.
   A new wrapper, adapter, or persistent coordination mechanism needs a concrete
   requirement the existing integration cannot satisfy.
+- Prefer public runtime APIs, existing dependency functions, and repository
+  helpers over reimplementing behavior they already cover. Verify compatibility
+  with the resolved version and required edge cases; explain any requirement
+  that needs custom logic. Reuse advice without a concrete defect is nonblocking.
+- Verify consequential assumptions about dependency behavior against matching
+  documentation, implementation, or tests. Use declarations for type contracts;
+  support runtime claims with evidence about the behavior being relied on.
 - Resolve GitHub App installation identity from the signed webhook's session
   state. Tokens and private keys stay outside prompts, repository content, logs,
   and sandbox environments.
