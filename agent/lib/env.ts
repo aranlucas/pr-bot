@@ -13,6 +13,10 @@ export const env = createEnv({
       .string()
       .min(1)
       .transform((key) => key.replaceAll(String.raw`\n`, "\n")),
+    SANDBOX_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
   },
   runtimeEnv: process.env,
   // `eve build` evaluates agent modules; set this to build without App credentials.

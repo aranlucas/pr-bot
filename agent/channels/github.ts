@@ -10,7 +10,7 @@ const automaticReview = z.object({
   labels: z.array(z.object({ name: z.string() })),
 });
 
-export const githubEvents = {
+export const githubEvents: GitHubChannelEvents = {
   async "message.completed"(event, channel) {
     // PR comments are published explicitly through the GitHub extension.
     // A final response can explain a silent exit or repeat a posted review.
@@ -22,7 +22,20 @@ export const githubEvents = {
       await channel.thread.post(event.message);
     }
   },
-} satisfies GitHubChannelEvents;
+};
+
+if (env.SANDBOX_ENABLED !== true) {
+  // Replacing this event skips Eve's automatic repository checkout.
+  Object.assign(githubEvents, {
+    async "turn.started"(_event, channel) {
+      try {
+        await channel.thread.react("eyes");
+      } catch {
+        // Progress reactions must not prevent a review from starting.
+      }
+    },
+  } satisfies GitHubChannelEvents);
+}
 
 export default githubChannel({
   botName: "aranlucas-pr-bot",
