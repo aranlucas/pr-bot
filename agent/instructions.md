@@ -67,7 +67,8 @@ Keep one bot timeline summary per PR: update it with
 `github__updatePullRequestComment`, or create it with `github__addPullRequestComment`
 when absent. Call `github__addPullRequestComment` at most once per turn; after it
 succeeds, update that comment instead of posting again. Include the reviewed head
-SHA, verification evidence, merge danger, and the next action. Preserve still-open findings and their status. For a clean
+SHA, verification evidence, merge danger, the recorded merge-eligibility status
+and rationale, and the next action. Preserve still-open findings and their status. For a clean
 review, say no concrete defects were found in the supplied diff and mention
 only material review limitations. Keep a clean low-risk review short.
 Batch new line-specific findings, ordered by severity, with
@@ -99,6 +100,11 @@ SHAs, and what they changed. A fix you commit never merges in the same turn.
 
 ## Merging
 
+Before publishing a completed review, record the assessment with
+`record-merge-assessment` as described in `review-changes`. A clean review and
+passing CI do not themselves establish merge eligibility. Only an `eligible`
+assessment for the current head in this turn permits an automatic merge.
+
 Never merge a PR that contains commits authored by this bot (author name
 `<bot_name>[bot]`; check with `github__listCommits`). Explain that a human
 must review the bot's changes and merge. Otherwise, after the review
@@ -112,6 +118,12 @@ before merging. Hold closed, merged, draft, conflicting PRs, PRs with outstandin
 and PRs with pending or unsuccessful CI. If the head changed since your review,
 review the new changes before attempting a merge. GitHub enforces branch
 protection and required approvals.
+
+The merge tool enforces the recorded assessment, current PR target, squash
+strategy, and fresh readiness checks. A denial ends the merge attempt; report
+the concrete reason through the existing review workflow on a later invocation.
+The tool cannot atomically pin a merge to the reviewed SHA, so the freshness
+rules still apply.
 
 Use only the current PR as the target of your comments, reviews, and merges.
 Never echo credentials or environment values. End the turn immediately after any

@@ -90,11 +90,11 @@ still receive assistant replies.
 
 ## What the bot can do
 
-The extension loads the `code-review` and `pr-author` presets plus
+The extension loads the `code-review` preset plus `createOrUpdateFile`,
 `mergePullRequest`, timeline-comment reads, issue-label reads, and label controls.
-It excludes `deleteBranch` and `resolveReviewThread`. The bot can read code, post
-comments and reviews, commit files with `github__createOrUpdateFile`, create
-branches, open PRs, and merge PRs. Tools are namespaced, such as
+It excludes branch and PR creation, branch deletion, and `resolveReviewThread`.
+The bot can read code, post comments and reviews, commit localized fixes, and
+merge eligible PRs. Tools are namespaced, such as
 `github__getPullRequestContext` and `github__mergePullRequest`.
 
 The installed `resolveReviewThread` tool accepts only a thread ID. This app's
@@ -102,8 +102,10 @@ token provider needs `owner` and `repo` to select an installation, so that tool
 is excluded until the extension can carry repository context for it. The bot can
 verify a fix and reply in its review thread; authors resolve the conversation.
 
-`requireApproval: false` lets every write run without a prompt, because no one
-is present to approve a webhook turn. Don't switch `preset` or `requireApproval`
+`requireApproval: false` lets writes run without a prompt, because no one
+is present to approve a webhook turn. The merge override uses a deterministic
+approval predicate that either permits or denies the call without a prompt.
+Don't switch `preset` or `requireApproval`
 to `'auto'`. Both call an AI Gateway evaluation model that free-tier Vercel teams
 cannot use. When that call fails, the extension falls back to the read-only
 `repo-explorer` preset.
@@ -115,14 +117,40 @@ repeated a successful call and posted the same summary twice. The extension
 cannot cap calls per turn, and an approval gate would park the webhook turn, so
 this reduces the repeat without preventing it.
 
-The event filters and suppression of automatic PR assistant replies run in code.
-Review decisions, pause/resume commands, incremental-review deduplication, and
-pre-write freshness checks are instructions to the model. GitHub permissions
-and branch protection enforce the limits on extension writes. The model does
-not always follow instructions. The instructions forbid the bot to merge
-a PR that contains its own commits, yet it opened and merged its own #23. To
-keep the bot from opening PRs, add `createBranch` and `createPullRequest` to
-`exclude`.
+The event filters, suppression of automatic PR assistant replies, capability
+exclusions, and merge readiness gate run in code. Review judgments, pause/resume
+commands, incremental-review deduplication, and freshness before comments or
+fixes remain instructions to the model. GitHub permissions and branch protection
+also constrain writes. The bot once opened and merged its own #23 despite an
+instruction forbidding self-merges; branch and PR creation are now unavailable,
+and the merge gate checks commit authorship independently of the model.
+
+### Merge eligibility
+
+`record-merge-assessment` records a typed review judgment in Eve's durable
+session state: reviewed SHA, coverage, unresolved findings, reversibility,
+blast radius, verification, review-only intent, and rationale. It returns
+`eligible`, `human_review_required`, or `waiting_for_evidence`. Reviews publish
+that status and rationale in the existing PR summary. This local capability is
+custom because the GitHub extension has no tool for recording review judgment;
+all GitHub operations still use the extension's executor.
+
+The native merge tool's approval predicate requires an eligible assessment from
+the same turn, policy version, and current signed webhook's PR. It then reads
+fresh PR state, labels, reviews, checks, statuses, and the base-to-head commit
+comparison. It permits only squash merges and denies paused, stale, closed,
+merged, draft, conflicting, unknown, or unready changes and PRs containing this
+bot's commits. Incomplete readiness or authorship results and failed reads deny
+the merge. An old change request is cleared by that reviewer's later approval
+or dismissal, not by a later comment. Successful, neutral, and skipped check
+runs pass; pending and failed checks do not. No configured CI signals alone
+does not block a merge; GitHub still enforces required checks and approvals.
+
+This separates review quality from merge readiness. The semantic assessment
+and publication of its summary still depend on the model's judgment and
+instructions. The native merge tool has no head-SHA precondition; the gate
+rechecks the head after gathering evidence, but the subsequent merge is not
+atomic. No learned risk score or incident-history database is introduced.
 
 ## Sandbox
 

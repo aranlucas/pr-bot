@@ -124,7 +124,7 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
   });
 
   assert.ok(githubMount);
-  assert.deepEqual(githubExtension.config.preset, ["code-review", "pr-author"]);
+  assert.strictEqual(githubExtension.config.preset, "code-review");
   assert.strictEqual(githubExtension.config.requireApproval, false);
   const resolve = github.events["step.started"];
   assert.ok(resolve);
@@ -142,8 +142,8 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
   assert.ok(tools.addPullRequestComment);
   assert.ok(tools.mergePullRequest);
   assert.ok(tools.createOrUpdateFile);
-  assert.ok(tools.createBranch);
-  assert.ok(tools.createPullRequest);
+  assert.isUndefined(tools.createBranch);
+  assert.isUndefined(tools.createPullRequest);
   assert.ok(tools.createPullRequestReview);
   assert.ok(tools.replyToReviewComment);
   assert.ok(tools.listPullRequestReviewThreads);

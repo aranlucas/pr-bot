@@ -2,14 +2,16 @@ import githubExtension from "@github-tools/eve-extension";
 import { formatGithubEveToolOutput } from "@github-tools/sdk/eve-runtime";
 import { z } from "zod";
 import { githubToken } from "@/github";
+import { approveMerge } from "@/merge-policy";
 
 const postedComment = z.object({ id: z.number(), url: z.string() });
 
 export default githubExtension({
   token: githubToken,
-  preset: ["code-review", "pr-author"],
+  preset: "code-review",
   include: [
     "mergePullRequest",
+    "createOrUpdateFile",
     "listIssueComments",
     "getIssue",
     "listLabels",
@@ -17,9 +19,12 @@ export default githubExtension({
     "addLabels",
     "removeLabel",
   ],
-  exclude: ["deleteBranch", "resolveReviewThread"],
+  exclude: ["createBranch", "createPullRequest", "deleteBranch", "resolveReviewThread"],
   requireApproval: false,
   overrides: {
+    mergePullRequest: {
+      approval: approveMerge,
+    },
     // A model repeated a successful call and posted the same summary twice, so
     // the result points every later summary change at the posted comment.
     addPullRequestComment: {
