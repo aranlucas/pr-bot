@@ -166,9 +166,24 @@ require human judgment even when the implementation has no concrete defects.
 ## Finish the review
 
 Remove unsupported findings and combine duplicate symptoms of the same defect.
+Call `record-merge-assessment` for the current reviewed `headSha` before
+publishing a completed review. Record `coverage` as complete only when every
+material change has been assessed, including material changes in mixed PRs.
+Set `unresolvedFindings`, `reversibility`, `blastRadius`, and `verification` from
+the evidence gathered above. Use sufficient verification when that evidence
+settles the material questions; this does not require runtime tests for prose.
+Set `reviewOnly` for an invocation restricted to review, including a manual
+review while paused. Give a short `rationale` identifying the concrete effect,
+risk, or missing evidence. Uncertain reversibility or blast radius needs human
+review. Incomplete coverage or missing material verification waits for evidence.
+The returned `eligible`, `human_review_required`, or `waiting_for_evidence`
+status records review judgment; fresh GitHub readiness is checked separately
+when the merge tool is called. An updated head needs a new review and assessment.
+
 Publish a completed review that describes the assessed change and its result,
 with findings ordered by severity, verification evidence, a brief merge-danger
-assessment with its reason, and the next action (fix, wait for checks, human
+assessment with its reason, the recorded eligibility status and rationale,
+and the next action (fix, wait for checks, human
 review and merge, or eligible for automatic merge). For a clean low-risk change,
 state that no concrete defects were found in the supplied diff. State a review
 limitation only when it explains a material risk in the changed behavior.

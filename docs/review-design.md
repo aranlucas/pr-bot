@@ -34,7 +34,7 @@ nor a standards preference becomes a defect without a concrete consequence.
 ## Capability boundaries
 
 The talk also recommends reviewers committing fixes. The bot does this through
-the extension's `pr-author` tools rather than a sandbox checkout:
+the extension's `createOrUpdateFile` tool rather than a sandbox checkout:
 `github__createOrUpdateFile` commits one file per call to the PR's head branch,
 with branch and PR creation tools excluded. Fixes are not run before they are
 committed; the repository's CI checks them on the new head. The tool pins each
@@ -42,11 +42,29 @@ commit to the branch head at the time of the call, not to the reviewed SHA, so
 the instructions refresh the PR and compare its head with the reviewed SHA
 before writing. The bot never merges a PR containing its own commits.
 
-Merge-danger classification is model judgment expressed in instructions, not a
-deterministic enforcement mechanism. Repository owners should enforce mandatory
-human approval with GitHub branch protection when required. The current native
-merge tool also lacks a head-SHA precondition; a fresh context check narrows but
-does not eliminate the race between review and merge.
+Merge-danger classification remains model judgment. The `record-merge-assessment`
+tool records that judgment against the reviewed SHA and current turn in Eve
+session state. The native merge tool's approval override requires an eligible
+assessment and independently checks the current target, strategy, readiness,
+and commit authorship. Repository owners should enforce mandatory human
+approval with GitHub branch protection when required. The native merge tool
+lacks a head-SHA precondition; the final context check narrows but does not
+eliminate the race between review and merge.
+
+## Risk-aware eligibility
+
+[Meta's RADAR paper](https://arxiv.org/pdf/2605.30208), especially Sections 2.6–2.8,
+motivates separating semantic review from policy and readiness checks. A review
+that finds no defects can still require human judgment because the change is
+irreversible, broad, or materially uncertain. A mixed PR qualifies only when
+every material change has been assessed and qualifies.
+
+The implementation uses the installed extension's existing approval predicate
+and executor; it adds no GitHub API wrapper. The custom assessment tool fills
+the missing capability for structured local review judgment. Policy version and
+turn binding prevent earlier assessments from authorizing later work. Aggregate
+risk scoring, source-history calibration, volume controls, and outcome tracking
+remain future work requiring operational evidence.
 
 ## Shipshape ownership
 

@@ -2,6 +2,7 @@ import { githubChannel, defaultGitHubAuth } from "eve/channels/github";
 import type { GitHubChannelEvents } from "eve/channels/github";
 import { z } from "zod";
 import { env } from "@/env";
+import { botName } from "@/merge-assessment";
 
 const automaticReview = z.object({
   state: z.literal("open"),
@@ -38,7 +39,7 @@ if (env.SANDBOX_ENABLED !== true) {
 }
 
 export default githubChannel({
-  botName: "aranlucas-pr-bot",
+  botName,
 
   credentials: {
     appId: env.GITHUB_APP_ID,
