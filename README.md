@@ -126,13 +126,29 @@ keep the bot from opening PRs, add `createBranch` and `createPullRequest` to
 
 ## Sandbox
 
-Each turn checks the repository out into a [Vercel Sandbox](https://eve.dev/docs/sandbox/vercel)
-at `/workspace`. The built-in `bash`, `read_file`, and `write_file` tools run
-there. `eve build` prepares the sandbox snapshot, and Vercel bills sandbox usage.
-When a session becomes idle, `agent/hooks/release-sandbox.ts` stops its sandbox
-compute. The persistent filesystem remains available for a later turn.
+Reviews use GitHub extension tools by default, without starting sandbox compute.
+Set `SANDBOX_ENABLED=true` to enable Eve's optional default tools, including
+`bash`, `read_file`, and `write_file`, and check the repository out into a
+[Vercel Sandbox](https://eve.dev/docs/sandbox/vercel) at `/workspace` before
+each turn. The flag accepts only `true` or `false` and defaults to `false`.
+GitHub tools, skills, and MCP connections remain available in either mode.
+Disabled mode also removes Eve's optional `agent` and `web_fetch` tools; reviews
+use the configured search connection and CI evidence instead of local commands.
+With sandbox use disabled, the GitHub channel acknowledges the turn with an
+eyes reaction and skips checkout; the idle hook skips sandbox access as well.
+
+When enabled, `agent/hooks/release-sandbox.ts` stops sandbox compute as a session
+becomes idle. The persistent filesystem remains available for a later turn.
 The sandbox has no `node_modules`, so the agent must run
 `pnpm install --frozen-lockfile` before it runs `pnpm format` or `pnpm check`.
+
+The flag controls runtime use, not build preparation. `eve build` still prepares
+the Vercel sandbox snapshot, and Vercel bills sandbox usage. The same provider
+stays configured in both modes so toggling the flag does not switch existing
+sessions to an incompatible provider. Existing runs stay on their deployment;
+use the same flag value at build and runtime and redeploy after changing it.
+Separately inspect old idle sandboxes when reclaiming capacity; this flag does
+not stop previously running sandboxes.
 
 The just-bash sandbox does not work for this bot on Vercel. Its template is not
 included in the function bundle, and `/var/task` is read-only. The GitHub
@@ -226,15 +242,16 @@ untrusted data. Metadata and patches go to the configured model service. See
 Set these variables in `.env.local` for local development. On Vercel, set them
 for both Production and Preview.
 
-| Variable                 | Required | Purpose                                               |
-| ------------------------ | -------- | ----------------------------------------------------- |
-| `GITHUB_APP_ID`          | Yes      | The GitHub App ID.                                    |
-| `GITHUB_APP_PRIVATE_KEY` | Yes      | PEM private key. Real and escaped newlines both work. |
-| `GITHUB_WEBHOOK_SECRET`  | Yes      | The webhook secret configured on the App.             |
-| `FREELLM_API_KEY`        | Yes      | The model and search service credential.              |
-| `FREELLM_API_BASE_URL`   | No       | The model service's OpenAI-compatible `/v1` endpoint. |
-| `FREELLM_MODEL`          | No       | The model ID. Defaults to `auto`.                     |
-| `CONTEXT7_API_KEY`       | No       | Context7 API key for library documentation lookups.   |
+| Variable                 | Required | Purpose                                                                  |
+| ------------------------ | -------- | ------------------------------------------------------------------------ |
+| `GITHUB_APP_ID`          | Yes      | The GitHub App ID.                                                       |
+| `GITHUB_APP_PRIVATE_KEY` | Yes      | PEM private key. Real and escaped newlines both work.                    |
+| `GITHUB_WEBHOOK_SECRET`  | Yes      | The webhook secret configured on the App.                                |
+| `FREELLM_API_KEY`        | Yes      | The model and search service credential.                                 |
+| `FREELLM_API_BASE_URL`   | No       | The model service's OpenAI-compatible `/v1` endpoint.                    |
+| `FREELLM_MODEL`          | No       | The model ID. Defaults to `auto`.                                        |
+| `CONTEXT7_API_KEY`       | No       | Context7 API key for library documentation lookups.                      |
+| `SANDBOX_ENABLED`        | No       | Enable runtime checkout and optional default tools. Defaults to `false`. |
 
 `agent/lib/env.ts` validates these variables with t3 env when the agent loads,
 which includes `eve build`. A missing required variable fails the build.

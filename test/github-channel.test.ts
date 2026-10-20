@@ -97,9 +97,20 @@ test.each([
       },
     };
 
-    await githubEvents["message.completed"](
+    const completed = githubEvents["message.completed"];
+    assert.isDefined(completed);
+
+    await completed(
       { finishReason: "stop", message, sequence: 1, stepIndex: 1, turnId: "turn" },
       context,
+      {
+        session: {
+          id: "session",
+          auth: { current: null, initiator: null },
+          turn: { id: "turn", sequence: 1 },
+        },
+        getSandbox: unexpected,
+      },
     );
 
     assert.deepEqual(post.mock.calls, posted ? [[message]] : []);
