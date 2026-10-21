@@ -18,15 +18,15 @@
     "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.70",
+    "@ai-sdk/openai-compatible": "^3.0.75",
     "@aranlucas/kit-skills": "1.0.16",
-    "@github-tools/eve-extension": "^0.8.1",
+    "@github-tools/eve-extension": "^0.9.0",
     "@github-tools/sdk": "^1.18.0",
     "@octokit/auth-app": "^8.3.1",
     "@t3-oss/env-core": "^0.13.11",
-    "@vercel/connect": "^2.5.2",
-    "ai": "^7.0.142",
-    "eve": "^0.80.1",
+    "@vercel/connect": "^2.5.3",
+    "ai": "^7.0.148",
+    "eve": "^0.82.0",
     "just-bash": "^3.6.0",
     "zod": "^4.6.7"
   },
@@ -36,8 +36,8 @@
     "@types/node": "^26.6.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
-    "oxfmt": "^0.73.0",
-    "oxlint": "^1.88.0",
+    "oxfmt": "^0.74.0",
+    "oxlint": "^1.89.0",
     "oxlint-tsgolint": "^7.0.2004",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"

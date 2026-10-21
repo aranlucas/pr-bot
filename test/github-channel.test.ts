@@ -135,6 +135,7 @@ function fixture() {
 
   const args: RouteHandlerArgs<GitHubChannelState> = {
     from: (address) => ({
+      create: unexpected,
       send: (_message, options) => {
         deliveries.push({ address, options });
 
