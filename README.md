@@ -296,6 +296,12 @@ repository, such as an unscoped search, fails with an error that names the tool.
 `agent/agent.ts` sets `modelContextWindowTokens: 64_000`. AI Gateway has no
 context-window data for the custom `freellmapi` model, and `eve build` fails
 without it. Eve uses the value to decide when to compact a session.
+Compaction starts at 75% of that window to leave more room during large reviews.
+The provider requests streamed token usage with `includeUsage: true`, so Eve can
+use reported input counts when the service supplies them. The review skill asks
+the model to retain a coverage ledger across compaction and reuse evidence at
+the same commit instead of fetching the same ranges again. These instructions
+reduce repeated work but do not impose a deterministic read limit.
 
 Eve 0.82 has no public setting to disable model or workflow retries. Its
 framework defaults remain enabled, even when the LLM API also retries.
@@ -306,6 +312,17 @@ That leaves time for compaction, tools, and failure reporting before the
 deployment's 300-second function limit. Eve's default ten-minute output timeout
 exceeds that limit. The deadline bounds the wait; it does not repair a slow
 provider or guarantee that a review completes.
+
+A `ModelStreamStalledError` can mean this total deadline expired, including
+while the provider was still emitting output. Eve retries that failure up to
+three attempts in the same step: three 90-second calls consume about 270
+seconds before backoff, tools, and reporting. Raising the timeout or adding
+another retry layer can exceed the function limit. For recurring failures,
+inspect the affected session's input size and actual response model before
+changing the deadline. `auto` follows the model service's routing policy; this
+app does not guarantee which upstream model or provider serves a retry. A
+reliable primary route and an independently available fallback must be configured
+in that service, or by changing the configured model endpoint and credentials.
 
 ### Model request headers
 
@@ -379,9 +396,11 @@ vercel alias set <preview-url> pr-bot-preview-aranlucas.vercel.app
 [lifecycle instrumentation](https://eve.dev/docs/observability/instrumentation)
 to write JSON lines with `source: "pr-bot.runtime"`. Logs include session,
 turn, step, attempt, and operation IDs. Model calls report elapsed time, finish
-reason, and token usage. Tool calls report their names, elapsed time, outcomes,
-and framework error codes when available. Failures and returned tool errors go
-to stderr; other events go to stdout.
+reason, token usage, and response model and response IDs when supplied by the
+provider. A model completion with finish reason `error` goes to stderr even
+though the SDK calls it a completed stream. Tool calls report their names,
+elapsed time, outcomes, and framework error codes when available. Failures and
+returned tool errors go to stderr; other events go to stdout.
 
 Find the review's session ID in Vercel's Agent Runs view or CLI, then search
 runtime logs for that ID. Pass an explicit project and team because worktrees
@@ -414,3 +433,24 @@ Eve exports to Agent Runs on Vercel by default. Its
 [Agent Runs guide](https://eve.dev/docs/observability/agent-runs) explains the
 separate Vercel sampling requirement: existing projects need a matching tracing
 sampling rule. Lifecycle logs do not depend on Agent Runs trace visibility.
+
+### Report failures to Sentry
+
+Set `SENTRY_DSN` in the deployment environment to send failure events to Sentry.
+Without it, the integration stays inactive. The DSN is a public ingest
+credential, but keep it out of source control like the other environment
+variables.
+
+The runtime reports lifecycle failures, model calls that finish with `error`,
+and tool calls that return an error. Cancelled and abandoned deliveries are
+ignored. Each event includes the session, turn, step, attempt, and operation
+IDs, plus available timing, tool name, framework error code, finish reason,
+result type, and response model and response IDs. Prompts, review text, tool
+arguments and results, raw errors, and credentials are never sent. Sentry merges
+ambient scope data into captured events, so the provider rebuilds each event
+from validated runtime metadata before sending it.
+
+Event IDs come from the operation ID and event type, so a replayed delivery
+reports once. The provider flushes before a session goes idle and closes when
+the process exits. Find events in the project's Issues view; the `lifecycle`,
+`errorCode`, and `environment` tags identify the failure source.

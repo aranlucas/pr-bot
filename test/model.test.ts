@@ -181,6 +181,7 @@ describe.each([
           .object({
             model: z.string(),
             stream: z.boolean().optional(),
+            stream_options: z.object({ include_usage: z.boolean() }).optional(),
             response_format: z.unknown().optional(),
             tools: z.array(
               z.object({ type: z.string(), function: z.object({ name: z.string() }) }),
@@ -190,6 +191,7 @@ describe.each([
 
         assert.strictEqual(body.model, "auto");
         assert.strictEqual(body.stream ?? false, streaming);
+        assert.deepEqual(body.stream_options, streaming ? { include_usage: true } : undefined);
         assert.strictEqual(body.response_format, undefined);
         assert.strictEqual(body.tools[0].function.name, "github__addPullRequestComment");
 
@@ -227,6 +229,11 @@ describe.each([
               ...metadata,
               object: "chat.completion.chunk",
               choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+            },
+            {
+              ...metadata,
+              object: "chat.completion.chunk",
+              choices: [],
               usage,
             },
           ];
@@ -286,6 +293,8 @@ describe.each([
 
       assert.strictEqual(requests, 2);
       assert.strictEqual(text, "Review posted.");
+      assert.strictEqual(steps[0].usage.inputTokens, 1);
+      assert.strictEqual(steps[0].usage.outputTokens, 1);
       assert.strictEqual(steps[0].toolCalls[0].toolName, "github__addPullRequestComment");
       assert.deepEqual(steps[0].toolCalls[0].input, input);
     },

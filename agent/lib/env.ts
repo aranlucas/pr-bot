@@ -17,6 +17,7 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    SENTRY_DSN: z.url().optional(),
   },
   runtimeEnv: process.env,
   // `eve build` evaluates agent modules; set this to build without App credentials.
