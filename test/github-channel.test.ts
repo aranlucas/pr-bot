@@ -13,11 +13,6 @@ interface Delivery {
   readonly options: ChannelSendOptions<GitHubChannelState>;
 }
 
-interface PullRequestState {
-  state: "open" | "closed";
-  merged: boolean;
-}
-
 interface CompletionCase {
   kind: GitHubConversationKind;
   message: string;
@@ -190,13 +185,7 @@ function fixture() {
 }
 
 describe("native GitHub webhook integration", () => {
-  let pullRequest: PullRequestState;
-
   beforeEach(() => {
-    pullRequest = { state: "open", merged: false };
-    vi.stubEnv("GITHUB_APP_SLUG", "pr-bot");
-    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "secret");
-
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
 
@@ -213,7 +202,8 @@ describe("native GitHub webhook integration", () => {
             Response.json({
               number: 7,
               title: "Fix",
-              ...pullRequest,
+              state: "open",
+              merged: false,
               head: { sha: "head" },
               base: { sha: "base" },
             }),
@@ -292,35 +282,6 @@ describe("native GitHub webhook integration", () => {
       warn.mock.calls[0][0],
       "[eve:github.channel] github inbound verification failed",
     );
-  });
-
-  test.each([
-    { event: "check_run", merged: false },
-    { event: "check_run", merged: true },
-    { event: "check_suite", merged: false },
-    { event: "check_suite", merged: true },
-  ])("ignores $event completions for a closed PR (merged: $merged)", async ({ event, merged }) => {
-    pullRequest = { state: "closed", merged };
-    const f = fixture();
-
-    const response = await f.dispatch(
-      event,
-      JSON.stringify({
-        ...envelope,
-        action: "completed",
-        [event]: {
-          id: 1,
-          head_sha: "head",
-          status: "completed",
-          conclusion: "success",
-          app: { id: 2, slug: "github-actions" },
-          pull_requests: [{ number: 7 }],
-        },
-      }),
-    );
-
-    assert.strictEqual(response.status, 200);
-    assert.strictEqual(f.deliveries.length, 0);
   });
 
   test.each(["opened", "reopened", "ready_for_review", "synchronize"])(

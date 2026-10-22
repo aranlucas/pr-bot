@@ -11,11 +11,5 @@
       "@/*": ["./agent/lib/*.ts"]
     }
   },
-  "include": [
-    "agent/**/*.ts",
-    "test/**/*.ts",
-    "scripts/**/*.ts",
-    "oxfmt.config.ts",
-    "vitest.config.ts"
-  ]
+  "include": ["agent/**/*.ts", "test/**/*.ts", "oxfmt.config.ts", "vitest.config.ts"]
 }
