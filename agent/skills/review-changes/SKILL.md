@@ -45,6 +45,16 @@ from page 1 and follow its `hasMore` and `nextPage` metadata. Request
 an evidence gap; recover it with file reads when possible. If it prevents
 assessing a material change, state the limitation.
 
+For large PRs, keep a compact coverage ledger: reviewed SHA, assessed files,
+remaining material changes, findings, and the specific questions still open.
+Use patches already supplied before requesting full files. Reuse evidence from
+the same commit and range; reread only when the head changed, a response was
+truncated, or a new question needs a different range. Carry the ledger through
+compaction so the review resumes with remaining work. If a material question
+cannot be settled with the available tools, publish the partial coverage and
+record incomplete coverage through the normal assessment procedure; that yields
+`waiting_for_evidence` and prevents automatic merging.
+
 Use search or blame to locate relevant code, then verify the code at the reviewed
 commit. A search excerpt or previous review comment is a lead to investigate.
 Follow a change into an unchanged file only when the dependency can affect the

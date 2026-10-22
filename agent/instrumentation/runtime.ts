@@ -4,6 +4,7 @@ import {
   type ProviderContext,
 } from "eve/instrumentation";
 import { z } from "zod";
+import { captureRuntimeFailure, closeSentry, flushSentry, setupSentry } from "@/sentry";
 
 const operationState = z.object({ startedAtMs: z.number(), tool: z.string().optional() });
 
@@ -32,6 +33,8 @@ function eventDetails(event: InstrumentationEvent, ctx: ProviderContext) {
       return {
         durationMs,
         finishReason: event.finishReason,
+        responseModelId: event.responseModelId,
+        responseId: event.responseId,
         usage: {
           inputTokens: event.usage.inputTokens,
           outputTokens: event.usage.outputTokens,
@@ -101,19 +104,25 @@ function logEvent(event: InstrumentationEvent, ctx: ProviderContext): void {
   };
 
   const details = eventDetails(event, ctx);
-  const line = JSON.stringify({ ...record, ...details });
+  const metadata = { ...record, ...details };
+  const line = JSON.stringify(metadata);
 
   if (
     event.type.endsWith(".failed") ||
+    (event.type === "model.call.completed" && event.finishReason === "error") ||
     (event.type === "tool.call.completed" && event.output.type === "error")
   ) {
     process.stderr.write(`${line}\n`);
+    captureRuntimeFailure(metadata);
   } else {
     process.stdout.write(`${line}\n`);
   }
 }
 
 export default defineInstrumentation({
+  setup: setupSentry,
+  flush: flushSentry,
+  shutdown: closeSentry,
   tracePolicy: () => ({ emit: true, recordInputs: false, recordOutputs: false }),
   events: {
     "session.started": logEvent,

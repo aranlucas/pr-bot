@@ -6,6 +6,7 @@ const freellmapi = createOpenAICompatible({
   name: "freellmapi",
   baseURL: env.FREELLM_API_BASE_URL,
   apiKey: env.FREELLM_API_KEY,
+  includeUsage: true,
   supportsStructuredOutputs: true,
   headers: {
     "user-agent": "pr-bot (Eve agent; OpenAI-compatible)",

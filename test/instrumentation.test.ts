@@ -53,6 +53,8 @@ test("model calls report latency and usage without logging prompt or response co
       idempotencyKey: "model-3",
       scope,
       finishReason: "tool-calls",
+      responseModelId: "served-model",
+      responseId: "provider-response-1",
       usage: { inputTokens: 20_000, outputTokens: 200 },
       content: [{ type: "text", text: "secret response" }],
     },
@@ -68,7 +70,34 @@ test("model calls report latency and usage without logging prompt or response co
   assert.include(lines[1], '"durationMs":75000');
   assert.include(lines[1], '"finishReason":"tool-calls"');
   assert.include(lines[1], '"inputTokens":20000');
+  assert.include(lines[1], '"responseModelId":"served-model"');
+  assert.include(lines[1], '"responseId":"provider-response-1"');
   assert.notInclude(lines.join(""), "secret");
+});
+
+test("a completed stream with an error finish reason is logged as a failure", async () => {
+  const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+  const errors = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+  await instrumentation.events?.["model.call.completed"]?.(
+    {
+      type: "model.call.completed",
+      idempotencyKey: "failed-stream",
+      scope,
+      finishReason: "error",
+      usage: {},
+      content: [{ type: "text", text: "secret partial response" }],
+    },
+    context(),
+  );
+
+  assert.strictEqual(errors.mock.calls.length, 1);
+  assert.strictEqual(output.mock.calls.length, 0);
+  const line = String(errors.mock.calls[0][0]);
+
+  assert.include(line, '"finishReason":"error"');
+  assert.include(line, '"sessionId":"review-session"');
+  assert.notInclude(line, "secret");
 });
 
 test("tool identity survives worker replacement and errors produce metadata-only error logs", async () => {
