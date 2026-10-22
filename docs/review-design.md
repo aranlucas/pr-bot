@@ -31,6 +31,31 @@ Keep clean low-risk reviews short. Use a small before/after example or pseudocod
 when it makes the behavior faster to understand. Neither generic design advice
 nor a standards preference becomes a defect without a concrete consequence.
 
+## Prompt size
+
+Michael Thiessen's
+[PR review agent thread](https://x.com/MichaelThiessen/status/2113346979757523382)
+(October 2026) reports that replacing a multi-stage review pipeline (fan-out
+angles, clean-context verification, deterministic grounding filters) with a
+single-shot prompt on a frontier model cut cost and latency and found more real
+issues. PR Bot already reviews in one agent pass (#9). The remaining lesson is
+to keep the prompt from accreting process: the instructions and review skill had
+grown to about 3,100 words with judgment rules stated in both, spending
+context on every turn.
+
+`agent/instructions.md` now holds standing policy only: target, untrusted data,
+pause and update handling, publication, fixes, and merging. `review-changes` is
+the single source for review judgment. Each keeps hard guardrails, tool quirks
+the model cannot discover (`filesOmitted`, the single-summary rule), and the
+review criteria from the sections above; step-by-step reasoning guidance was
+removed. Status derivation lives in `record-merge-assessment`, so the prompt
+describes its inputs rather than restating its rules. Add a rule only when a
+run shows the model's default behavior is wrong, and prefer a code check when
+the behavior can be enforced.
+
+The thread's other lever, staying on the frontier model, is a deployment
+choice: `FREELLM_MODEL` defaults to the model service's `auto` route.
+
 ## Capability boundaries
 
 The talk also recommends reviewers committing fixes. The bot does this through
