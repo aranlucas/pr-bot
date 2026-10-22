@@ -5,6 +5,8 @@ import { reviewModel } from "@/model";
 export default defineAgent({
   defaultTools: env.SANDBOX_ENABLED === true,
   model: reviewModel,
-  modelContextWindowTokens: 64_000,
+  // Matches FreeLLMAPI's 128k "min context window" routing floor, so every
+  // model the `auto` route can pick holds a full window before compaction.
+  modelContextWindowTokens: 131_072,
   compaction: { thresholdPercent: 0.75 },
 });

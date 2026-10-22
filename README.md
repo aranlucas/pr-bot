@@ -293,9 +293,16 @@ which looks up the App's installation on that repository with
 works on every repository where the App is installed. A call with no target
 repository, such as an unscoped search, fails with an error that names the tool.
 
-`agent/agent.ts` sets `modelContextWindowTokens: 64_000`. AI Gateway has no
+`agent/agent.ts` sets `modelContextWindowTokens: 131_072`. AI Gateway has no
 context-window data for the custom `freellmapi` model, and `eve build` fails
 without it. Eve uses the value to decide when to compact a session.
+The value matches FreeLLMAPI's `128k` **Min context window** floor
+(`PUT /api/settings/min-context-window`). The floor removes every model with a
+known smaller window from the `auto` pool, so set it in the dashboard before
+deploying this value. Without the floor, FreeLLMAPI still skips models whose
+window cannot fit a request, but a large review then fails over among fewer
+models and can hit `context_length_exceeded` on models with no listed window.
+Change both values together; a larger floor leaves fewer free models to route to.
 Compaction starts at 75% of that window to leave more room during large reviews.
 The provider requests streamed token usage with `includeUsage: true`, so Eve can
 use reported input counts when the service supplies them. The review skill asks
