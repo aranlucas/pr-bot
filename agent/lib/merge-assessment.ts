@@ -3,6 +3,8 @@ import { z } from "zod";
 
 export const botName = "aranlucas-pr-bot";
 
+export const pausedLabel = "pr-bot:paused";
+
 export const mergePolicyVersion = 1;
 
 export const assessmentInput = z.object({
@@ -18,7 +20,7 @@ export const assessmentInput = z.object({
 
 type Assessment = z.infer<typeof assessmentInput>;
 
-export interface PullRequestTarget {
+interface PullRequestTarget {
   owner: string;
   repo: string;
   pullNumber: number;

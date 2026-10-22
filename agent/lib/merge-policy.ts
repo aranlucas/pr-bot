@@ -7,6 +7,7 @@ import {
   currentPullRequest,
   mergeAssessment,
   mergePolicyVersion,
+  pausedLabel,
   samePullRequest,
 } from "@/merge-assessment";
 
@@ -109,7 +110,7 @@ export async function approveMerge(ctx: ApprovalContext): Promise<ApprovalStatus
       return denied("the PR is closed, merged, draft, conflicting, or mergeability is unknown.");
     }
 
-    if (labels.labels.some((label) => label.toLowerCase() === "pr-bot:paused")) {
+    if (labels.labels.some((label) => label.toLowerCase() === pausedLabel)) {
       return denied("automatic merging is paused for this PR.");
     }
 

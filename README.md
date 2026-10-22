@@ -297,7 +297,7 @@ repository, such as an unscoped search, fails with an error that names the tool.
 context-window data for the custom `freellmapi` model, and `eve build` fails
 without it. Eve uses the value to decide when to compact a session.
 
-Eve 0.80.1 has no public setting to disable model or workflow retries. Its
+Eve 0.82 has no public setting to disable model or workflow retries. Its
 framework defaults remain enabled, even when the LLM API also retries.
 
 `agent/lib/model.ts` gives each provider call a 90-second total deadline,
