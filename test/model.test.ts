@@ -7,10 +7,11 @@ describe.each(["deadline", "caller cancellation"])("model %s", (stop) => {
     vi.useRealTimers();
   });
 
-  test.each(["headers", "body", "ongoing output"])(
+  test.each(["headers", "body", "ongoing output", "reasoning"])(
     "aborts a slow provider before the function deadline (%s)",
     async (phase) => {
       vi.useFakeTimers();
+      const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
       // Native AbortSignal timers do not use Vitest's clock.
       vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
         const controller = new AbortController();
@@ -45,14 +46,21 @@ describe.each(["deadline", "caller cancellation"])("model %s", (stop) => {
             new ReadableStream<Uint8Array>({
               start(controller) {
                 const interval =
-                  phase === "ongoing output"
+                  phase === "ongoing output" || phase === "reasoning"
                     ? setInterval(() => {
                         const chunk = {
                           id: "slow",
                           created: 1,
                           model: "auto",
                           choices: [
-                            { index: 0, delta: { content: "Still working" }, finish_reason: null },
+                            {
+                              index: 0,
+                              delta:
+                                phase === "reasoning"
+                                  ? { reasoning_content: "Private reasoning" }
+                                  : { content: "Still working" },
+                              finish_reason: null,
+                            },
                           ],
                         };
 
@@ -113,6 +121,32 @@ describe.each(["deadline", "caller cancellation"])("model %s", (stop) => {
       assert.ok(settled, "the model stream must settle so Eve can record the failure");
       await consumed;
       assert.strictEqual(vi.mocked(fetch).mock.calls.length, 1);
+
+      const diagnostics = output.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.includes('"event":"model.stream.settled"'));
+
+      assert.lengthOf(diagnostics, 1);
+
+      const record = z
+        .object({
+          outcome: z.literal("aborted"),
+          abortKind: z.enum(["timeout", "cancelled"]),
+          reasoningCharacters: z.number(),
+          textCharacters: z.number(),
+          lastOutputAgeMs: z.number().optional(),
+        })
+        .parse(JSON.parse(diagnostics[0] ?? "null"));
+
+      assert.strictEqual(record.abortKind, stop === "deadline" ? "timeout" : "cancelled");
+
+      if (stop === "deadline" && phase === "reasoning") {
+        assert.isAbove(record.reasoningCharacters, 0);
+        assert.strictEqual(record.textCharacters, 0);
+        assert.isAtMost(record.lastOutputAgeMs ?? Infinity, 10_000);
+      }
+
+      assert.notInclude(diagnostics.join(""), "Private reasoning");
 
       if (stop === "deadline") {
         assert.isNotEmpty(errors);
