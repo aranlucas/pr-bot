@@ -1,6 +1,7 @@
 import { githubChannel, defaultGitHubAuth } from "eve/channels/github";
 import type { GitHubChannelEvents } from "eve/channels/github";
 import { z } from "zod";
+import { createOctokit } from "@github-tools/sdk";
 import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
 import { env } from "@/env";
 import { githubToken } from "@/github";
@@ -12,6 +13,17 @@ const automaticReview = z.object({
   draft: z.literal(false),
   labels: z.array(z.object({ name: z.string() })),
 });
+
+const currentReviewCandidate = automaticReview.extend({ head: z.object({ sha: z.string() }) });
+
+const reviewPage = z.array(
+  z.object({
+    user: z.object({ login: z.string() }).nullable(),
+    commit_id: z.string().nullable(),
+    state: z.string(),
+    submitted_at: z.string().nullable().optional(),
+  }),
+);
 
 export const githubEvents: GitHubChannelEvents = {
   async "message.completed"(event, channel) {
@@ -73,7 +85,7 @@ export default githubChannel({
 
     return { auth: defaultGitHubAuth(ctx) };
   },
-  onPullRequest(ctx, pr) {
+  async onPullRequest(ctx, pr) {
     if (!["opened", "reopened", "ready_for_review", "synchronize"].includes(pr.action)) {
       return null;
     }
@@ -86,6 +98,52 @@ export default githubChannel({
       candidate.data.labels.some((label) => label.name.toLowerCase() === pausedLabel)
     ) {
       return null;
+    }
+
+    const path = `/repos/${ctx.repository.owner}/${ctx.repository.name}/pulls/${pr.pullRequestNumber}`;
+
+    const current = currentReviewCandidate.safeParse(
+      (await ctx.github.request({ method: "GET", path })).body,
+    );
+
+    if (
+      !current.success ||
+      current.data.head.sha !== pr.headSha ||
+      current.data.labels.some((label) => label.name.toLowerCase() === pausedLabel)
+    ) {
+      return null;
+    }
+
+    // SDK 1.18's listPullRequestReviews omits commit_id. Its public Octokit
+    // client preserves it and supplies pagination for this duplicate check.
+    const octokit = createOctokit(
+      await githubToken({
+        toolName: "listPullRequestReviews",
+        owner: ctx.repository.owner,
+        repo: ctx.repository.name,
+      }),
+    );
+
+    for await (const page of octokit.paginate.iterator(octokit.rest.pulls.listReviews, {
+      owner: ctx.repository.owner,
+      repo: ctx.repository.name,
+      pull_number: pr.pullRequestNumber,
+      per_page: 100,
+      page: 1,
+    })) {
+      const reviews = reviewPage.parse(page.data);
+
+      if (
+        reviews.some(
+          (review) =>
+            review.user?.login.toLowerCase() === `${botName}[bot]` &&
+            review.commit_id === pr.headSha &&
+            Boolean(review.submitted_at) &&
+            ["APPROVED", "COMMENTED", "CHANGES_REQUESTED"].includes(review.state),
+        )
+      ) {
+        return null;
+      }
     }
 
     return {

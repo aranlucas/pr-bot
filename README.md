@@ -84,7 +84,20 @@ and starts a turn for these events:
   updated with new commits (`opened`, `reopened`, `ready_for_review`, `synchronize`).
 
 Automatic PR events skip payloads that are draft, closed, merged, or labeled
-`pr-bot:paused`. Finished check runs do not start a turn. Mentions still start
+`pr-bot:paused`. Before dispatch, the channel refreshes the PR and skips stale
+heads and newly ineligible PRs. It pages through submitted reviews and skips an
+automatic event when this bot already has an approval, comment review, or change
+request for that head SHA. Pending and dismissed reviews do not suppress a new
+review. A failed freshness or review-history read skips automatic dispatch.
+The SDK 1.18 `listPullRequestReviews` tool omits `commit_id`, so this check uses
+the SDK's public Octokit client and its pagination instead.
+
+This suppresses events delivered after review publication; it is not a lock for
+simultaneous events arriving before publication. The instructions also recheck
+prior reviews when a turn runs. Explicit mentions can request reassessment of
+the same head.
+
+Finished check runs do not start a turn. Mentions still start
 turns while paused, but mentions on draft, closed, or merged PRs are filtered
 after a fresh GitHub read. A failed read also skips the mention. The instructions refresh the current PR
 and labels because an event can become stale before the turn runs; draft,
@@ -125,7 +138,7 @@ this reduces the repeat without preventing it.
 
 The event filters, suppression of automatic PR assistant replies, capability
 exclusions, review publication gate, and merge readiness gate run in code.
-Review judgments, pause/resume commands, incremental-review deduplication, and
+Review judgments, pause/resume commands, reconciliation of earlier findings, and
 freshness before comments or fixes remain instructions to the model. GitHub permissions and branch protection
 also constrain writes. The bot once opened and merged its own #23 despite an
 instruction forbidding self-merges; branch and PR creation are now unavailable,
@@ -173,6 +186,15 @@ PRs, and bot-authored commits. It verifies the bot has published an approval for
 the reviewed head, and supplies `expectedHeadOid` to GitHub's enable mutation.
 The SDK 1.18 extension has no enable/disable auto-merge tools, so these two
 operations use its public `createOctokit` client without a new dependency.
+
+Reviews can finish while CI runs. Pending CI alone need not make verification
+insufficient when source reasoning and other evidence suffice. After GitHub
+confirms queueing, the tool returns to the model to refresh the PR and update
+the existing summary with “Review complete; GitHub auto-merge queued,” then
+finish. If queueing is blocked, the summary names the reason and says manual
+merging is required. The bot does not poll or hold a turn open for CI. CI
+completion will not retry a blocked merge. A confirmed merge still ends the
+turn immediately and receives no further comment.
 
 Queueing requires **Allow auto-merge** in the target repository and a branch
 protection rule requiring at least one approval with **Dismiss stale pull

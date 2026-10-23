@@ -112,8 +112,9 @@ evidence.
 
 Publish the assessed change and result, findings by severity, verification
 evidence, merge danger with its reason, the eligibility status and rationale,
-and the next action (fix, wait for checks, human review and merge, or eligible
-for approval and automatic merge). For a clean low-risk change, state that the supplied diff
+and the next action (fix, human review and merge, or approval and a merge-readiness
+check). Report the queue outcome in the existing summary as the standing merge
+instructions describe. For a clean low-risk change, state that the supplied diff
 shows no concrete defects.
 
 When a confirmed finding exposes a gap in the review process, add at most one

@@ -35,6 +35,29 @@ const envelope = {
   sender: { id: 10, login: "author", type: "User" },
 };
 
+const submittedReview = {
+  user: { login: "aranlucas-pr-bot[bot]" },
+  commit_id: "head",
+  state: "APPROVED",
+  submitted_at: "2026-10-23T00:00:00Z",
+};
+
+function automaticEvent() {
+  return JSON.stringify({
+    ...envelope,
+    action: "synchronize",
+    pull_request: {
+      number: 7,
+      state: "open",
+      merged: false,
+      draft: false,
+      labels: [],
+      head: { sha: "head" },
+      base: { sha: "base" },
+    },
+  });
+}
+
 function unexpected(): never {
   throw new Error("Unexpected fixture operation");
 }
@@ -207,12 +230,15 @@ describe("native GitHub webhook integration", () => {
               state: "open",
               merged: false,
               draft: false,
+              labels: [],
               head: { sha: "head" },
               base: { sha: "base" },
             }),
           );
         case "/repos/Acme/App/pulls/7/files":
           return Promise.resolve(Response.json([changedFile]));
+        case "/repos/Acme/App/pulls/7/reviews":
+          return Promise.resolve(Response.json([]));
         case "/repos/Acme/App/compare/base...head":
           return Promise.resolve(Response.json({ files: [changedFile] }));
         default:
@@ -272,6 +298,185 @@ describe("native GitHub webhook integration", () => {
       [200, 200],
     );
     assert.strictEqual(f.deliveries.length, 0);
+  });
+
+  test.each(["APPROVED", "COMMENTED", "CHANGES_REQUESTED"])(
+    "a submitted bot %s review suppresses repeated automatic events for its head",
+    async (state) => {
+      const f = fixture();
+      const fetch = vi.mocked(globalThis.fetch).getMockImplementation();
+      assert.ok(fetch);
+      vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+
+        if (url.pathname.endsWith("/reviews")) {
+          return Promise.resolve(Response.json([{ ...submittedReview, state }]));
+        }
+
+        return fetch(input, init);
+      });
+
+      await f.dispatch("pull_request", automaticEvent());
+      await f.dispatch("pull_request", automaticEvent());
+
+      assert.lengthOf(f.deliveries, 0);
+    },
+  );
+
+  test.each([
+    { ...submittedReview, commit_id: "old-head" },
+    { ...submittedReview, user: { login: "human" } },
+    { ...submittedReview, user: null },
+    { ...submittedReview, state: "PENDING", submitted_at: null },
+    { ...submittedReview, state: "DISMISSED" },
+  ])("an unrelated or unsubmitted review still permits an automatic review: %j", async (review) => {
+    const f = fixture();
+    const fetch = vi.mocked(globalThis.fetch).getMockImplementation();
+    assert.ok(fetch);
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+
+      return url.pathname.endsWith("/reviews")
+        ? Promise.resolve(Response.json([review]))
+        : fetch(input, init);
+    });
+
+    await f.dispatch("pull_request", automaticEvent());
+
+    assert.lengthOf(f.deliveries, 1);
+  });
+
+  test("duplicate detection reads subsequent pages and uses the signed installation", async () => {
+    const f = fixture();
+    const fetch = vi.mocked(globalThis.fetch).getMockImplementation();
+    assert.ok(fetch);
+    const pages: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+
+      if (url.pathname.endsWith("/reviews")) {
+        assert.strictEqual(
+          new Headers(init?.headers).get("authorization"),
+          "token installation-token",
+        );
+        assert.strictEqual(url.searchParams.get("per_page"), "100");
+        const page = url.searchParams.get("page") ?? "";
+        pages.push(page);
+
+        return Promise.resolve(
+          Response.json(
+            page === "1"
+              ? Array.from({ length: 100 }, () => ({ ...submittedReview, commit_id: "old-head" }))
+              : [submittedReview],
+            page === "1"
+              ? {
+                  headers: {
+                    link: '<https://api.github.com/repos/Acme/App/pulls/7/reviews?per_page=100&page=2>; rel="next"',
+                  },
+                }
+              : {},
+          ),
+        );
+      }
+
+      return fetch(input, init);
+    });
+
+    await f.dispatch("pull_request", automaticEvent());
+
+    assert.deepEqual(pages, ["1", "2"]);
+    assert.lengthOf(f.deliveries, 0);
+  });
+
+  test.each([
+    { head: { sha: "new-head" } },
+    { state: "closed" },
+    { merged: true },
+    { draft: true },
+    { labels: [{ name: "PR-Bot:Paused" }] },
+  ])("a stale automatic event cannot start a review: %j", async (changes) => {
+    const f = fixture();
+    const fetch = vi.mocked(globalThis.fetch).getMockImplementation();
+    assert.ok(fetch);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      const response = await fetch(input, init);
+
+      return url.pathname.endsWith("/pulls/7")
+        ? Response.json({ ...(await response.json()), ...changes })
+        : response;
+    });
+
+    await f.dispatch("pull_request", automaticEvent());
+
+    assert.lengthOf(f.deliveries, 0);
+  });
+
+  test.each(["PR read failed", "review read failed", "malformed reviews"])(
+    "automatic review is skipped when duplicate detection cannot be verified: %s",
+    async (condition) => {
+      const f = fixture();
+      const fetch = vi.mocked(globalThis.fetch).getMockImplementation();
+      assert.ok(fetch);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+
+        if (
+          (condition === "PR read failed" && url.pathname.endsWith("/pulls/7")) ||
+          (condition === "review read failed" && url.pathname.endsWith("/reviews"))
+        ) {
+          return Promise.resolve(Response.json({ message: "Not found" }, { status: 404 }));
+        }
+
+        if (condition === "malformed reviews" && url.pathname.endsWith("/reviews")) {
+          return Promise.resolve(Response.json({ error: "Unexpected response" }));
+        }
+
+        return fetch(input, init);
+      });
+
+      const response = await f.dispatch("pull_request", automaticEvent());
+
+      assert.strictEqual(response.status, 200);
+      assert.lengthOf(f.deliveries, 0);
+    },
+  );
+
+  test("an explicit review request can reassess a head with a completed bot review", async () => {
+    const f = fixture();
+    const fetch = vi.mocked(globalThis.fetch).getMockImplementation();
+    assert.ok(fetch);
+    const reviewRead = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+
+      if (url.pathname.endsWith("/reviews")) {
+        reviewRead();
+
+        return Promise.resolve(Response.json([submittedReview]));
+      }
+
+      return fetch(input, init);
+    });
+
+    await f.dispatch("pull_request", automaticEvent());
+    assert.lengthOf(f.deliveries, 0);
+    await f.dispatch(
+      "issue_comment",
+      JSON.stringify({
+        ...envelope,
+        action: "created",
+        issue: {
+          number: 7,
+          pull_request: { url: "https://api.github.com/repos/Acme/App/pulls/7" },
+        },
+        comment: { id: 1, body: "@aranlucas-pr-bot review again", user: envelope.sender },
+      }),
+    );
+
+    assert.lengthOf(f.deliveries, 1);
+    assert.strictEqual(reviewRead.mock.calls.length, 1);
   });
 
   test("the native channel rejects forged webhook signatures", async () => {
