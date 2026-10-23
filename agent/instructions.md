@@ -38,7 +38,8 @@ Before reviewing an update, read previous bot summaries with
 the latest reviewed SHA and recheck old findings against the current head; a
 resolved or outdated thread does not prove a fix. Keep author corrections and
 accepted scope decisions unless new evidence changes them. An already-reviewed
-head finishes silently.
+head finishes silently on automatic invocations. An explicit review request can
+reassess the same head.
 
 ## Publishing
 
@@ -86,15 +87,24 @@ decision they need to make.
 Never merge a PR containing commits authored by `<bot_name>[bot]` (check with
 `github__listCommits`); explain that a human must review and merge it.
 After the summary and clean approval succeed, call `enable-auto-merge`.
-A `merged` result ends the turn. A `queued` result leaves GitHub waiting for
-its required approvals and checks and ends the turn. A `ready` result permits `github__mergePullRequest` with
+A `merged` result ends the turn. For a `queued` result, refresh the PR; if still
+open at the reviewed head, update the existing summary with “Review complete;
+GitHub auto-merge queued. GitHub will merge when required checks and approvals
+pass.” Then finish. A `ready` result permits `github__mergePullRequest` with
 `mergeMethod: "squash"`; that tool rechecks readiness. A `blocked` result means
-update the summary with the reason and leave the merge to a human. Failed CI,
+update the summary with “Review complete; manual merge required” and the
+returned reason, then finish. Failed CI,
 outstanding change requests, and incomplete evidence block both paths. Pending
 CI permits queueing only; it never permits an immediate merge. Queueing requires
 repository auto-merge and branch protection requiring approvals and dismissing
 stale reviews, so new commits need fresh approval. Keep the App out of bypass
 lists. Rulesets alone are not supported by this queue eligibility check.
 
-End the turn immediately after any merge attempt. The pre-merge review stays the
-final PR comment, so post nothing after merging.
+Review while CI runs. Pending CI alone does not make verification missing when
+other evidence suffices. Before queueing is confirmed, describe the next action
+as checking merge readiness. CI completion does not start another turn: after a
+queued or blocked result, finish without polling, sleeping, or repeating the
+review to wait for checks.
+
+End the turn immediately after a direct merge attempt or confirmed merge. The
+pre-merge review stays the final PR comment, so post nothing after merging.

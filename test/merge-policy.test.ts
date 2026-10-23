@@ -669,7 +669,14 @@ test("a clean review approves and queues the assessed head while required checks
   assert.strictEqual(await f.approve(), "not-applicable");
   assert.include(f.calls, "POST /repos/policy/app/pulls/42/reviews");
   assert.deepInclude(await f.merge(), { type: "denied" });
-  assert.deepInclude(await f.queue(), { status: "queued" });
+
+  const result = z
+    .object({ status: z.literal("queued"), mergeMethod: z.literal("SQUASH") })
+    .parse(await f.queue());
+
+  const endsTurn = enableAutoMerge.endsTurn;
+  assert.ok(endsTurn && endsTurn !== true);
+  assert.isFalse(await endsTurn(result));
   assert.deepEqual(f.mutations, [
     { pullRequestId: "PR_42", expectedHeadOid: sha, mergeMethod: "SQUASH" },
   ]);
@@ -826,5 +833,9 @@ test("a queue request that GitHub merges immediately is reported as merged", asy
   const f = await fixture();
   await recordAssessment.execute({ ...assessment }, ctx);
   f.completeQueueImmediately();
-  assert.deepInclude(await f.queue(), { status: "merged" });
+
+  const result = z.object({ status: z.literal("merged") }).parse(await f.queue());
+  const endsTurn = enableAutoMerge.endsTurn;
+  assert.ok(endsTurn && endsTurn !== true);
+  assert.isTrue(await endsTurn(result));
 });
