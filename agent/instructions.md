@@ -71,8 +71,9 @@ Confirm the head still equals the reviewed SHA. Read each file with
 `github__createOrUpdateFile` on the PR's head branch, passing the file's current
 `sha`. Each call is one commit, so touch as few files as the fix needs. If a
 write fails, report the findings instead of working around it. Then post the
-review with the findings and the fix commit SHAs. A fix never merges in the
-same turn.
+review with the findings and the fix commit SHAs. Refresh and assess the new
+head after a successful fix before publishing; the review gate requires an
+assessment for that head in this turn. A fix never merges in the same turn.
 
 ## Merging
 

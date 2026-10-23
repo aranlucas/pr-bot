@@ -4,9 +4,17 @@ import {
   type ProviderContext,
 } from "eve/instrumentation";
 import { z } from "zod";
-import { captureRuntimeFailure, closeSentry, flushSentry, setupSentry } from "@/sentry";
+import { closeSentry, flushSentry, reportRuntimeFailure, setupSentry } from "@/sentry";
 
-const operationState = z.object({ startedAtMs: z.number(), tool: z.string().optional() });
+const operationState = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("model"),
+    startedAtMs: z.number(),
+    model: z.string(),
+    provider: z.string(),
+  }),
+  z.object({ kind: z.literal("tool"), startedAtMs: z.number(), tool: z.string() }),
+]);
 
 function eventDetails(event: InstrumentationEvent, ctx: ProviderContext) {
   const started = operationState.safeParse(ctx.state.get()).data;
@@ -26,12 +34,18 @@ function eventDetails(event: InstrumentationEvent, ctx: ProviderContext) {
         ...("outcome" in event && { outcome: event.outcome, errorCode: event.errorCode }),
       };
     case "model.call.started":
-      ctx.state.set({ startedAtMs: Date.now() });
+      ctx.state.set({
+        kind: "model",
+        startedAtMs: Date.now(),
+        model: event.model.modelId,
+        provider: event.model.provider,
+      });
 
       return { model: event.model.modelId, provider: event.model.provider };
     case "model.call.completed":
       return {
         durationMs,
+        ...(started?.kind === "model" && { model: started.model, provider: started.provider }),
         finishReason: event.finishReason,
         responseModelId: event.responseModelId,
         responseId: event.responseId,
@@ -44,25 +58,32 @@ function eventDetails(event: InstrumentationEvent, ctx: ProviderContext) {
         },
       };
     case "tool.call.started":
-      ctx.state.set({ startedAtMs: event.startedAtMs ?? Date.now(), tool: event.toolName });
+      ctx.state.set({
+        kind: "tool",
+        startedAtMs: event.startedAtMs ?? Date.now(),
+        tool: event.toolName,
+      });
 
       return { tool: event.toolName, callId: event.callId, kind: event.kind };
     case "tool.call.completed":
       return {
-        tool: started?.tool,
+        tool: started?.kind === "tool" ? started.tool : undefined,
         durationMs: event.durationMs ?? durationMs,
         outcome: event.outcome,
         resultType: event.output.type,
       };
     case "tool.call.failed":
       return {
-        tool: started?.tool,
+        tool: started?.kind === "tool" ? started.tool : undefined,
         durationMs,
         outcome: event.outcome,
         errorCode: event.errorCode,
       };
     case "model.call.failed":
-      return { durationMs };
+      return {
+        durationMs,
+        ...(started?.kind === "model" && { model: started.model, provider: started.provider }),
+      };
     case "input.requested":
     case "input.resolved":
       return {
@@ -105,17 +126,15 @@ function logEvent(event: InstrumentationEvent, ctx: ProviderContext): void {
 
   const details = eventDetails(event, ctx);
   const metadata = { ...record, ...details };
-  const line = JSON.stringify(metadata);
 
   if (
     event.type.endsWith(".failed") ||
     (event.type === "model.call.completed" && event.finishReason === "error") ||
     (event.type === "tool.call.completed" && event.output.type === "error")
   ) {
-    process.stderr.write(`${line}\n`);
-    captureRuntimeFailure(metadata);
+    reportRuntimeFailure(metadata);
   } else {
-    process.stdout.write(`${line}\n`);
+    process.stdout.write(`${JSON.stringify({ ...metadata, level: "info" })}\n`);
   }
 }
 
@@ -132,7 +151,6 @@ export default defineInstrumentation({
     "turn.started": logEvent,
     "turn.completed": logEvent,
     "turn.cancelled": logEvent,
-    "turn.failed": logEvent,
     "channel.delivery.started": logEvent,
     "channel.delivery.completed": logEvent,
     "channel.delivery.cancelled": logEvent,

@@ -100,6 +100,43 @@ test("a completed stream with an error finish reason is logged as a failure", as
   assert.notInclude(line, "secret");
 });
 
+test("failed model attempts retain model identity after worker replacement without error content", async () => {
+  vi.spyOn(process.stdout, "write").mockReturnValue(true);
+  const errors = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+  const ctx = context();
+
+  vi.useFakeTimers();
+  vi.setSystemTime(1_000);
+  await instrumentation.events?.["model.call.started"]?.(
+    {
+      type: "model.call.started",
+      idempotencyKey: "failed-model",
+      scope,
+      model: { modelId: "auto", provider: "freellmapi.chat" },
+    },
+    ctx,
+  );
+
+  vi.setSystemTime(91_000);
+  await instrumentation.events?.["model.call.failed"]?.(
+    {
+      type: "model.call.failed",
+      idempotencyKey: "failed-model",
+      scope,
+      error: new Error("secret upstream headers"),
+    },
+    context(ctx.state.get()),
+  );
+
+  const line = String(errors.mock.calls[0][0]);
+  assert.include(line, '"model":"auto"');
+  assert.include(line, '"provider":"freellmapi.chat"');
+  assert.include(line, '"durationMs":90000');
+  assert.include(line, '"level":"warning"');
+  assert.include(line, '"failureKind":"attempt_failure"');
+  assert.notInclude(line, "secret");
+});
+
 test("tool identity survives worker replacement and errors produce metadata-only error logs", async () => {
   const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
   const errors = vi.spyOn(process.stderr, "write").mockReturnValue(true);

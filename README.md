@@ -59,6 +59,8 @@ agent/
   instrumentation/
     runtime.ts           # Metadata-only lifecycle logs
   hooks/
+    failed-turns.ts       # Safe failure codes and terminal-turn metadata
+    github-results.ts     # Detect SDK errors returned as normal tool results
     release-sandbox.ts   # Stop sandbox compute while the agent is idle
   lib/
     env.ts               # Environment validation (t3 env)
@@ -103,8 +105,8 @@ is excluded until the extension can carry repository context for it. The bot can
 verify a fix and reply in its review thread; authors resolve the conversation.
 
 `requireApproval: false` lets writes run without a prompt, because no one
-is present to approve a webhook turn. The merge override uses a deterministic
-approval predicate that either permits or denies the call without a prompt.
+is present to approve a webhook turn. The review and merge overrides use
+deterministic approval predicates that permit or deny the call without a prompt.
 Don't switch `preset` or `requireApproval`
 to `'auto'`. Both call an AI Gateway evaluation model that free-tier Vercel teams
 cannot use. When that call fails, the extension falls back to the read-only
@@ -118,14 +120,23 @@ cannot cap calls per turn, and an approval gate would park the webhook turn, so
 this reduces the repeat without preventing it.
 
 The event filters, suppression of automatic PR assistant replies, capability
-exclusions, and merge readiness gate run in code. Review judgments, pause/resume
-commands, incremental-review deduplication, and freshness before comments or
-fixes remain instructions to the model. GitHub permissions and branch protection
+exclusions, review publication gate, and merge readiness gate run in code.
+Review judgments, pause/resume commands, incremental-review deduplication, and
+freshness before comments or fixes remain instructions to the model. GitHub permissions and branch protection
 also constrain writes. The bot once opened and merged its own #23 despite an
 instruction forbidding self-merges; branch and PR creation are now unavailable,
 and the merge gate checks commit authorship independently of the model.
 
 ### Merge eligibility
+
+The native `createPullRequestReview` tool requires an assessment for the same
+policy version, current turn, and signed webhook's PR. Its approval predicate
+reads the current PR through the GitHub SDK and denies publication if the PR is
+closed, merged, at another head, or cannot be verified. An assessment can report
+findings, incomplete evidence, or review-only intent; it need not permit a merge.
+After committing a fix, the bot refreshes and assesses the new head before
+publishing. This check narrows the race before publication; the installed SDK
+does not expose GitHub's review commit-ID parameter, so it is not atomic.
 
 `record-merge-assessment` records a typed review judgment in Eve's durable
 session state: reviewed SHA, coverage, unresolved findings, reversibility,
@@ -404,10 +415,22 @@ vercel alias set <preview-url> pr-bot-preview-aranlucas.vercel.app
 to write JSON lines with `source: "pr-bot.runtime"`. Logs include session,
 turn, step, attempt, and operation IDs. Model calls report elapsed time, finish
 reason, token usage, and response model and response IDs when supplied by the
-provider. A model completion with finish reason `error` goes to stderr even
-though the SDK calls it a completed stream. Tool calls report their names,
+provider. Requested model/provider identity survives worker replacement and is
+included on failed attempts. A model completion with finish reason `error` goes
+to stderr even though the SDK calls it a completed stream. Tool calls report their names,
 elapsed time, outcomes, and framework error codes when available. Failures and
-returned tool errors go to stderr; other events go to stdout.
+returned tool errors go to stderr; policy denials go to stdout as informational
+`policy_denial` records. JSON records include `level`; failures also include
+`failureKind`. Search their content because Vercel can index stderr JSON as
+`info`, independently of the embedded level.
+
+The `github-results` hook detects the GitHub SDK's normal resolved `{ error: ... }`
+payloads and emits `tool.result.failed` with an allowlisted catalog code, tool
+name, call ID, and turn coordinates. Unknown codes or string errors become
+`github_tools.UNKNOWN`; the result body is never logged. The `failed-turns`
+hook preserves the framework failure code and `terminal` flag without recording
+the failure message or details. These native hooks supplement metadata-only
+lifecycle events, which cannot inspect result bodies or raw errors.
 
 Find the review's session ID in Vercel's Agent Runs view or CLI, then search
 runtime logs for that ID. Pass an explicit project and team because worktrees
@@ -431,10 +454,11 @@ durable replay, so they are not a reliable count of executions.
 
 The runtime log provider explicitly disables input and output capture for
 every audience. It never logs prompts, review text, tool arguments or results,
-raw errors, or credentials. Failure details are limited to available framework
-error codes. These logs do not enable full Agent Runs transcripts or change
-Eve's OpenTelemetry capture and Workflow retention policies. Existing runs
-remain on their original deployment and will not gain the new logs.
+raw errors, or credentials. Failure details are limited to structural framework
+and allowlisted SDK codes. These logs do not enable full Agent Runs transcripts
+or change Eve's OpenTelemetry capture and Workflow retention policies. Active
+work stays on its current deployment. A later delivery to an idle session can
+hand it to the new deployment; verify the serving release when checking a fix.
 
 Eve exports to Agent Runs on Vercel by default. Its
 [Agent Runs guide](https://eve.dev/docs/observability/agent-runs) explains the
@@ -449,15 +473,25 @@ credential, but keep it out of source control like the other environment
 variables.
 
 The runtime reports lifecycle failures, model calls that finish with `error`,
-and tool calls that return an error. Cancelled and abandoned deliveries are
-ignored. Each event includes the session, turn, step, attempt, and operation
+and tool calls that return an error, including GitHub SDK error payloads.
+Cancelled, abandoned, and policy-denied operations do not create Sentry failure
+issues. Denials remain visible in runtime logs. Model/step attempt failures and
+tool operation failures are warnings; failed turns and sessions are errors.
+Each event includes the session, turn, step, attempt, and operation
 IDs, plus available timing, tool name, framework error code, finish reason,
-result type, and response model and response IDs. Prompts, review text, tool
-arguments and results, raw errors, and credentials are never sent. Sentry merges
+result type, requested model/provider identity, and response model and response
+IDs. Prompts, review text, tool arguments and results, raw errors, and credentials
+are never sent. Sentry merges
 ambient scope data into captured events, so the provider rebuilds each event
 from validated runtime metadata before sending it.
 
 Event IDs come from the operation ID and event type, so a replayed delivery
 reports once. The provider flushes before a session goes idle and closes when
 the process exits. Find events in the project's Issues view; the `lifecycle`,
-`errorCode`, and `environment` tags identify the failure source.
+`failureKind`, `errorCode`, `model`, `provider`, and `environment` tags identify
+the failure source. A failed attempt may recover, so use turn and session
+outcomes when measuring user-visible failures.
+
+The [reliability investigation](docs/reliability-research.md) records the
+production baseline. Subsequent dated checks under `docs/reliability/` track
+local fixes, release verification, and unresolved framework capabilities.
