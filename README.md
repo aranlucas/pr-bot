@@ -432,6 +432,24 @@ hook preserves the framework failure code and `terminal` flag without recording
 the failure message or details. These native hooks supplement metadata-only
 lifecycle events, which cannot inspect result bodies or raw errors.
 
+Model middleware also emits `pr-bot.model-stream` records, paired by a fresh
+`callId` for each provider invocation. A settled record reports time until the
+provider stream became available, first reasoning/text/tool-input output,
+last-part and last-output age, UTF-16 character counts, response identity when
+available, and timeout versus cancellation. It records no prompts, output text,
+tool names/arguments, headers, or error messages. Use the Vercel request identity
+and response ID to correlate these records with Eve lifecycle events; the call ID
+is not a durable operation ID and changes on replay.
+
+These timings observe the SDK's parsed stream, not raw network bytes or upstream
+compute. Missing output can mean queueing, prompt processing, hidden reasoning,
+or proxy buffering. `completed` means the SDK emitted a finish part and closed;
+it does not establish a completed review. `interrupted` can include a consumer
+canceling without an abort signal. The 90-second deadline still applies while
+reasoning or text is arriving. Eve's native lifecycle instrumentation does not
+expose partial output timings, so this observer uses AI SDK middleware and native
+Web Streams; it adds no retry or timeout layer.
+
 Find the review's session ID in Vercel's Agent Runs view or CLI, then search
 runtime logs for that ID. Pass an explicit project and team because worktrees
 may have no local Vercel link:
