@@ -3,6 +3,7 @@ import { formatGithubEveToolOutput } from "@github-tools/sdk/eve-runtime";
 import { z } from "zod";
 import { githubToken } from "@/github";
 import { approveMerge } from "@/merge-policy";
+import { approveReview } from "@/review-policy";
 
 const postedComment = z.object({ id: z.number(), url: z.string() });
 
@@ -22,6 +23,9 @@ export default githubExtension({
   exclude: ["createBranch", "createPullRequest", "deleteBranch", "resolveReviewThread"],
   requireApproval: false,
   overrides: {
+    createPullRequestReview: {
+      approval: approveReview,
+    },
     mergePullRequest: {
       approval: approveMerge,
     },
