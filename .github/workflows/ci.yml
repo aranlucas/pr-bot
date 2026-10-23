@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
 permissions:
   contents: read
 concurrency:
@@ -12,6 +13,7 @@ concurrency:
 
 jobs:
   test:
+    if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,6 +27,7 @@ jobs:
           require-lockfile: true
       - run: pnpm test
   typecheck:
+    if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -38,6 +41,7 @@ jobs:
           require-lockfile: true
       - run: pnpm typecheck
   lint:
+    if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
