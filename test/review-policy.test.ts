@@ -62,6 +62,7 @@ const freshPr = {
   head: { sha: "reviewed-head" },
   state: "open",
   merged: false,
+  draft: false,
 };
 
 function fixture(pr: Partial<typeof freshPr> = freshPr, status = 200) {
@@ -117,6 +118,7 @@ test("a review-only assessment with findings can publish on its current head", a
 
 test.each([
   { head: { sha: "new-head" }, state: "open", merged: false },
+  { draft: true },
   { head: { sha: "reviewed-head" }, state: "closed", merged: false },
   { head: { sha: "reviewed-head" }, state: "closed", merged: true },
 ])("a stale or closed PR cannot publish the review", async (pr) => {
@@ -142,6 +144,14 @@ test("a request for a different PR is denied before network access", async () =>
     type: "denied",
   });
   assert.strictEqual(fetch.mock.calls.length, 0);
+});
+
+test("a review with findings cannot publish a formal approval", async () => {
+  const calls = fixture();
+  assert.deepInclude(await approveReview({ ...ctx, toolInput: { ...target, event: "APPROVE" } }), {
+    type: "denied",
+  });
+  assert.ok(calls.every((call) => !call.startsWith("POST /repos/")));
 });
 
 test("a failed readiness read denies publication", async () => {

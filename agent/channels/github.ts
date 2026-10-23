@@ -1,7 +1,9 @@
 import { githubChannel, defaultGitHubAuth } from "eve/channels/github";
 import type { GitHubChannelEvents } from "eve/channels/github";
 import { z } from "zod";
+import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
 import { env } from "@/env";
+import { githubToken } from "@/github";
 import { botName, pausedLabel } from "@/merge-assessment";
 
 const automaticReview = z.object({
@@ -46,6 +48,31 @@ export default githubChannel({
     webhookSecret: env.GITHUB_WEBHOOK_SECRET,
   },
   events: githubEvents,
+  async onComment(ctx, comment) {
+    if (!new RegExp(`@${botName}(?=$|[^A-Za-z0-9_-])`, "iu").test(comment.body)) {
+      return null;
+    }
+
+    if (ctx.conversation.pullRequestNumber !== null) {
+      try {
+        automaticReview.pick({ state: true, merged: true, draft: true }).parse(
+          await executeGithubEveTool(
+            "getPullRequest",
+            {
+              owner: ctx.repository.owner,
+              repo: ctx.repository.name,
+              pullNumber: ctx.conversation.pullRequestNumber,
+            },
+            { token: githubToken },
+          ),
+        );
+      } catch {
+        return null;
+      }
+    }
+
+    return { auth: defaultGitHubAuth(ctx) };
+  },
   onPullRequest(ctx, pr) {
     if (!["opened", "reopened", "ready_for_review", "synchronize"].includes(pr.action)) {
       return null;

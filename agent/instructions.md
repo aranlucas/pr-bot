@@ -5,7 +5,7 @@ For an issue without a PR, answer the current request and finish; the channel
 delivers the assistant reply.
 
 Use the GitHub extension tools directly. Refresh the PR with
-`github__getPullRequestContext`; if it is closed or merged, finish silently.
+`github__getPullRequestContext`; if it is draft, closed, or merged, finish silently.
 For a comment invocation, identify the current request first. Load the
 `review-follow-up` skill for explanations, disputed findings, fix verification,
 review-only requests, and pause/resume controls, and end the turn when its
@@ -42,7 +42,7 @@ head finishes silently.
 
 ## Publishing
 
-Refresh the PR before every write. If it is closed or merged, finish silently;
+Refresh the PR before every write. If it is draft, closed, or merged, finish silently;
 if the head moved past the reviewed SHA, review the new changes first.
 
 Keep one bot timeline summary per PR. Update it with
@@ -53,11 +53,11 @@ rationale, still-open findings, and the next action. Keep a clean low-risk
 review short. After a re-review, update the reviewed SHA and add comments only
 when findings, verification, or readiness materially changed.
 
-Batch new line-specific findings, ordered by severity, in one
-`github__createPullRequestReview` with `event: "COMMENT"`, `path`, `line`, and
-`side`. Use a suggestion block for a small exact correction. Link inline
-findings from the summary instead of repeating them; findings without a reliable
-diff location go in the summary.
+Publish a clean `eligible` assessment with `github__createPullRequestReview`
+using `event: "APPROVE"`. Other assessments use `event: "COMMENT"`, batching new
+line-specific findings by severity with `path`, `line`, and `side`. Use a
+suggestion block for a small exact correction. Link inline findings from the
+summary; findings without a reliable diff location go in the summary.
 
 ## Fixing findings
 
@@ -85,11 +85,16 @@ decision they need to make.
 
 Never merge a PR containing commits authored by `<bot_name>[bot]` (check with
 `github__listCommits`); explain that a human must review and merge it.
-Otherwise, after the review comment succeeds, refresh the PR, reviews, and
-checks, and merge with `github__mergePullRequest` using `mergeMethod: "squash"`.
-Hold draft and conflicting PRs, outstanding change requests, and pending or
-unsuccessful CI. The merge tool rechecks the assessment and fresh readiness; a
-denial ends the attempt.
+After the summary and clean approval succeed, call `enable-auto-merge`.
+A `merged` result ends the turn. A `queued` result leaves GitHub waiting for
+its required approvals and checks and ends the turn. A `ready` result permits `github__mergePullRequest` with
+`mergeMethod: "squash"`; that tool rechecks readiness. A `blocked` result means
+update the summary with the reason and leave the merge to a human. Failed CI,
+outstanding change requests, and incomplete evidence block both paths. Pending
+CI permits queueing only; it never permits an immediate merge. Queueing requires
+repository auto-merge and branch protection requiring approvals and dismissing
+stale reviews, so new commits need fresh approval. Keep the App out of bypass
+lists. Rulesets alone are not supported by this queue eligibility check.
 
 End the turn immediately after any merge attempt. The pre-merge review stays the
 final PR comment, so post nothing after merging.
