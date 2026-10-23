@@ -1,5 +1,5 @@
 import { createAppAuth } from "@octokit/auth-app";
-import type { GithubTokenCall } from "@github-tools/sdk";
+import { createOctokit, type GithubTokenCall } from "@github-tools/sdk";
 import { z } from "zod";
 import { env } from "@/env";
 
@@ -11,6 +11,26 @@ const auth = createAppAuth({
 const installationResponse = z.object({ id: z.number() });
 
 const installations = new Map<string, number>();
+
+const appIdentity = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/iu) });
+
+let botLogin: string | undefined;
+
+// SDK 1.18's extension has no authenticated-App metadata tool. Use its public
+// Octokit client with App auth, independently of the channel's mention alias.
+export async function githubBotLogin(): Promise<string> {
+  if (botLogin !== undefined) {
+    return botLogin;
+  }
+
+  const { token } = await auth({ type: "app" });
+  const { data } = await createOctokit(token).rest.apps.getAuthenticated();
+  const { slug } = appIdentity.parse(data);
+  // Cache only success so a later event can retry a failed identity lookup.
+  botLogin = `${slug.toLowerCase()}[bot]`;
+
+  return botLogin;
+}
 
 interface RepositoryCall extends Pick<GithubTokenCall, "owner" | "repo"> {
   toolName: string;

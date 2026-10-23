@@ -1,8 +1,8 @@
 import { createOctokit } from "@github-tools/sdk";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { githubToken } from "@/github";
-import { botName, currentPullRequest, mergeAssessment } from "@/merge-assessment";
+import { githubBotLogin, githubToken } from "@/github";
+import { currentPullRequest, mergeAssessment } from "@/merge-assessment";
 import { approveMerge } from "@/merge-policy";
 
 const autoMergeState = z.object({
@@ -87,7 +87,7 @@ export default defineTool({
           }
         }
       `,
-          { ...target, botLogin: `${botName}[bot]`, request: { signal: ctx.abortSignal } },
+          { ...target, botLogin: await githubBotLogin(), request: { signal: ctx.abortSignal } },
         ),
       );
 

@@ -1,9 +1,8 @@
 import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
 import type { ApprovalContext } from "eve/tools/approval";
 import { z } from "zod";
-import { githubToken } from "@/github";
+import { githubBotLogin, githubToken } from "@/github";
 import {
-  botName,
   currentPullRequest,
   mergeAssessment,
   mergePolicyVersion,
@@ -180,7 +179,7 @@ export async function approveMerge(
       return denied("commit authorship evidence is incomplete; leave merging to a human.");
     }
 
-    const botLogin = `${botName}[bot]`;
+    const botLogin = await githubBotLogin();
 
     if (
       commits.commits.some((commit) =>

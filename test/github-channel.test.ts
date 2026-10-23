@@ -6,7 +6,9 @@ import type {
   GitHubConversationKind,
   GitHubEventContext,
 } from "eve/channels/github";
-import channel, { githubEvents } from "../agent/channels/github.js";
+import initialChannel, { githubEvents } from "../agent/channels/github.js";
+
+let channel = initialChannel;
 
 interface Delivery {
   readonly address: string;
@@ -36,7 +38,7 @@ const envelope = {
 };
 
 const submittedReview = {
-  user: { login: "aranlucas-pr-bot[bot]" },
+  user: { login: "patchling-pr[bot]" },
   commit_id: "head",
   state: "APPROVED",
   submitted_at: "2026-10-23T00:00:00Z",
@@ -208,11 +210,15 @@ function fixture() {
 }
 
 describe("native GitHub webhook integration", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
+    channel = (await import("../agent/channels/github.js")).default;
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
 
       switch (path) {
+        case "/app":
+          return Promise.resolve(Response.json({ id: 5335315, slug: "patchling-pr" }));
         case "/repos/Acme/App/installation":
           return Promise.resolve(Response.json({ id: 99 }));
         case "/app/installations/99/access_tokens":
@@ -326,6 +332,8 @@ describe("native GitHub webhook integration", () => {
   test.each([
     { ...submittedReview, commit_id: "old-head" },
     { ...submittedReview, user: { login: "human" } },
+    { ...submittedReview, user: { login: "another-app[bot]" } },
+    { ...submittedReview, user: { login: "aranlucas-pr-bot[bot]" } },
     { ...submittedReview, user: null },
     { ...submittedReview, state: "PENDING", submitted_at: null },
     { ...submittedReview, state: "DISMISSED" },
@@ -412,7 +420,13 @@ describe("native GitHub webhook integration", () => {
     assert.lengthOf(f.deliveries, 0);
   });
 
-  test.each(["PR read failed", "review read failed", "malformed reviews"])(
+  test.each([
+    "PR read failed",
+    "review read failed",
+    "malformed reviews",
+    "App read failed",
+    "malformed App",
+  ])(
     "automatic review is skipped when duplicate detection cannot be verified: %s",
     async (condition) => {
       const f = fixture();
@@ -423,10 +437,15 @@ describe("native GitHub webhook integration", () => {
         const url = new URL(input instanceof Request ? input.url : input.toString());
 
         if (
+          (condition === "App read failed" && url.pathname === "/app") ||
           (condition === "PR read failed" && url.pathname.endsWith("/pulls/7")) ||
           (condition === "review read failed" && url.pathname.endsWith("/reviews"))
         ) {
           return Promise.resolve(Response.json({ message: "Not found" }, { status: 404 }));
+        }
+
+        if (condition === "malformed App" && url.pathname === "/app") {
+          return Promise.resolve(Response.json({ id: 5335315, slug: "" }));
         }
 
         if (condition === "malformed reviews" && url.pathname.endsWith("/reviews")) {

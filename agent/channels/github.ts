@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createOctokit } from "@github-tools/sdk";
 import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
 import { env } from "@/env";
-import { githubToken } from "@/github";
+import { githubBotLogin, githubToken } from "@/github";
 import { botName, pausedLabel } from "@/merge-assessment";
 
 const automaticReview = z.object({
@@ -124,6 +124,8 @@ export default githubChannel({
       }),
     );
 
+    const botLogin = await githubBotLogin();
+
     for await (const page of octokit.paginate.iterator(octokit.rest.pulls.listReviews, {
       owner: ctx.repository.owner,
       repo: ctx.repository.name,
@@ -136,7 +138,7 @@ export default githubChannel({
       if (
         reviews.some(
           (review) =>
-            review.user?.login.toLowerCase() === `${botName}[bot]` &&
+            review.user?.login.toLowerCase() === botLogin &&
             review.commit_id === pr.headSha &&
             Boolean(review.submitted_at) &&
             ["APPROVED", "COMMENTED", "CHANGES_REQUESTED"].includes(review.state),

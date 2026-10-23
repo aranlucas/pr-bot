@@ -1,14 +1,28 @@
 import { assert, beforeEach, expect, test, vi } from "vitest";
-import { github } from "@github-tools/eve-extension/tools";
+import type { github as GithubTools } from "@github-tools/eve-extension/tools";
 import type { ToolContext } from "eve/tools";
 import type { ApprovalContext } from "eve/tools/approval";
 import { z } from "zod";
-import githubMount from "../agent/extensions/github.js";
-import type { assessmentInput } from "../agent/lib/merge-assessment.js";
-import { mergeAssessment } from "../agent/lib/merge-assessment.js";
-import recordAssessment from "../agent/tools/record-merge-assessment.js";
-import enableAutoMerge from "../agent/tools/enable-auto-merge.js";
-import disableAutoMerge from "../agent/tools/disable-auto-merge.js";
+import type GithubMount from "../agent/extensions/github.js";
+import type {
+  assessmentInput,
+  mergeAssessment as MergeAssessment,
+} from "../agent/lib/merge-assessment.js";
+import type RecordAssessment from "../agent/tools/record-merge-assessment.js";
+import type EnableAutoMerge from "../agent/tools/enable-auto-merge.js";
+import type DisableAutoMerge from "../agent/tools/disable-auto-merge.js";
+
+let github: typeof GithubTools;
+
+let githubMount: typeof GithubMount;
+
+let mergeAssessment: typeof MergeAssessment;
+
+let recordAssessment: typeof RecordAssessment;
+
+let enableAutoMerge: typeof EnableAutoMerge;
+
+let disableAutoMerge: typeof DisableAutoMerge;
 
 const sha = "a".repeat(40);
 
@@ -99,9 +113,17 @@ const fixtureData = z.object({
   ),
   commitTotal: z.number(),
   failPath: z.string(),
+  appSlug: z.string().default("patchling-pr"),
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  github = (await import("@github-tools/eve-extension/tools")).github;
+  githubMount = (await import("../agent/extensions/github.js")).default;
+  mergeAssessment = (await import("../agent/lib/merge-assessment.js")).mergeAssessment;
+  recordAssessment = (await import("../agent/tools/record-merge-assessment.js")).default;
+  enableAutoMerge = (await import("../agent/tools/enable-auto-merge.js")).default;
+  disableAutoMerge = (await import("../agent/tools/disable-auto-merge.js")).default;
   stored = null;
   // The durable state boundary is supplied by Eve in production.
   vi.spyOn(mergeAssessment, "get").mockImplementation(() => stored);
@@ -174,6 +196,16 @@ async function fixture() {
     calls.push(`${method} ${path}`);
     const authorization = new Headers(init?.headers).get("authorization");
 
+    if (path === "/app") {
+      assert.ok(authorization?.startsWith("bearer ey"));
+
+      return Promise.resolve(
+        path === data.failPath
+          ? Response.json({ message: "Not found" }, { status: 404 })
+          : Response.json({ id: 5335315, slug: data.appSlug }),
+      );
+    }
+
     if (path === "/repos/policy/app/installation") {
       assert.ok(authorization?.startsWith("bearer ey"));
 
@@ -220,7 +252,10 @@ async function fixture() {
 
     if (path === "/graphql") {
       const body = z
-        .object({ query: z.string(), variables: z.object({ input: z.unknown().optional() }) })
+        .object({
+          query: z.string(),
+          variables: z.object({ input: z.unknown().optional(), botLogin: z.string().optional() }),
+        })
         .parse(JSON.parse(z.string().parse(init?.body)));
 
       if (body.query.includes("mutation EnableAutoMerge")) {
@@ -269,6 +304,7 @@ async function fixture() {
       }
 
       assert.include(body.query, "query AutoMergeReadiness");
+      assert.strictEqual(body.variables.botLogin, "patchling-pr[bot]");
 
       return Promise.resolve(Response.json({ data: queueState }));
     }
@@ -585,11 +621,11 @@ test.each([
   }
 
   if (condition === "own commit name") {
-    f.data.commits[0].commit.author.name = "aranlucas-pr-bot[bot]";
+    f.data.commits[0].commit.author.name = "patchling-pr[bot]";
   }
 
   if (condition === "own commit login") {
-    f.data.commits[0].author.login = "aranlucas-pr-bot[bot]";
+    f.data.commits[0].author.login = "patchling-pr[bot]";
   }
 
   if (condition === "missing commits") {
@@ -705,7 +741,7 @@ test.each([
   }
 
   if (condition === "own commit") {
-    f.data.commits[0].author.login = "aranlucas-pr-bot[bot]";
+    f.data.commits[0].author.login = "patchling-pr[bot]";
   }
 
   if (condition === "changes requested") {
@@ -794,6 +830,34 @@ test("queueing requires a published approval at the assessed head", async () => 
   assert.deepEqual(f.mutations, []);
 });
 
+test.each(["unavailable", "malformed"])(
+  "an %s App identity blocks approval, merging, and queueing, then recovers safely",
+  async (condition) => {
+    const f = await fixture();
+    await recordAssessment.execute({ ...assessment }, ctx);
+    f.data.failPath = condition === "unavailable" ? "/app" : "";
+    f.data.appSlug = condition === "malformed" ? "" : "patchling-pr";
+
+    assert.deepInclude(await f.approve(), { type: "denied" });
+    assert.deepInclude(await f.merge(), { type: "denied" });
+    assert.deepInclude(await f.queue(), { status: "blocked" });
+    assert.deepEqual(f.mutations, []);
+    assert.ok(f.calls.every((call) => !/^(POST|PUT) \/repos\//u.test(call)));
+
+    f.data.failPath = "";
+    f.data.appSlug = "patchling-pr";
+    f.data.commits[0].author.login = "PATCHLING-PR[bot]";
+
+    const denied = z
+      .object({ type: z.literal("denied"), reason: z.string() })
+      .parse(await f.merge());
+
+    assert.include(denied.reason, "contains the bot's commits");
+    assert.deepInclude(await f.queue(), { status: "blocked" });
+    assert.deepEqual(f.mutations, []);
+  },
+);
+
 test.each([true, false])(
   "pausing cancels an existing queue idempotently (queued=%s)",
   async (queued) => {
@@ -814,9 +878,10 @@ test("failed cancellation cannot report success", async () => {
   assert.deepInclude(await f.cancel(), { status: "blocked" });
 });
 
-test.each([enableAutoMerge, disableAutoMerge])(
-  "unsigned auto-merge calls cannot access GitHub",
-  async (tool) => {
+test.each(["enable", "disable"])(
+  "unsigned %s auto-merge calls cannot access GitHub",
+  async (operation) => {
+    const tool = operation === "enable" ? enableAutoMerge : disableAutoMerge;
     const fetch = vi.spyOn(globalThis, "fetch");
     assert.deepInclude(
       await tool.execute(

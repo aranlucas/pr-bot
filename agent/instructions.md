@@ -84,8 +84,9 @@ head in this turn permits a merge. Leave irreversible, broadly impactful, or
 materially uncertain changes for a human, even with green CI, and name the
 decision they need to make.
 
-Never merge a PR containing commits authored by `<bot_name>[bot]` (check with
-`github__listCommits`); explain that a human must review and merge it.
+Never merge a PR containing this GitHub App's commits; explain that a human
+must review and merge it. The merge gate resolves the authenticated App's
+account independently of the plain-text invocation alias `<bot_name>`.
 After the summary and clean approval succeed, call `enable-auto-merge`.
 A `merged` result ends the turn. For a `queued` result, refresh the PR; if still
 open at the reviewed head, update the existing summary with “Review complete;

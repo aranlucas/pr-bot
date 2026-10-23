@@ -357,6 +357,16 @@ which looks up the App's installation on that repository with
 works on every repository where the App is installed. A call with no target
 repository, such as an unscoped search, fails with an error that names the tool.
 
+Bot account checks use the configured App's authenticated `GET /app` slug,
+resolved with `createAppAuth` and the SDK's public Octokit client. SDK 1.18's
+extension has no authenticated-App metadata tool. The plain-text invocation
+alias `@aranlucas-pr-bot` remains independent of that account. Duplicate-review
+suppression, bot-commit protection, and auto-merge approval selection all use
+the resolved login. A failed or malformed identity read skips automatic review
+dispatch and denies approval, merge, and queue attempts. Only successful
+identity reads are cached, for the process lifetime; failed reads can recover
+on a later call. Restart the process after changing the App's slug.
+
 `agent/agent.ts` sets `modelContextWindowTokens: 131_072`. AI Gateway has no
 context-window data for the custom `freellmapi` model, and `eve build` fails
 without it. Eve uses the value to decide when to compact a session.
