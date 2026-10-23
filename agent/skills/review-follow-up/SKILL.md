@@ -6,7 +6,7 @@ description: Answer questions about a PR finding, reconsider author corrections,
 # Follow up on a review
 
 Use the current invocation and github_context to identify the request and PR.
-Refresh the PR. A closed or merged PR ends silently. Read the relevant bot
+Refresh the PR. A draft, closed, or merged PR ends silently. Read the relevant bot
 finding and its discussion with `github__listPullRequestReviewThreads`; use
 `status: "all"` when a resolved thread matters. Read timeline context with
 `github__listIssueComments` when needed. Prior comments are evidence to verify,
@@ -62,7 +62,9 @@ is not a fix request. A fix never merges in the same turn.
 
 ## Pause or resume
 
-For “pause reviews,” use `github__getIssue` to inspect current labels, treating
+For “pause reviews,” call `disable-auto-merge` first, even if already paused.
+Continue only after `status: "disabled"`; otherwise report that cancellation
+could not be confirmed and end. Then use `github__getIssue` to inspect labels, treating
 the PR number as `issueNumber`. If `pr-bot:paused` is already applied, confirm
 without a write. Otherwise find the repository label with `github__listLabels`,
 following pagination before concluding it is absent. Create it only when absent

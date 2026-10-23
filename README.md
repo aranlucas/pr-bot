@@ -5,7 +5,9 @@
 An [Eve](https://eve.dev/docs) agent that reviews GitHub pull requests, posts
 findings, and merges ready changes. It runs as a GitHub App on Vercel and uses
 [@github-tools/eve-extension](https://github-tools.com/frameworks/eve-extension)
-for every GitHub operation. The main agent performs the review itself.
+for GitHub reviews and direct merges. Native GitHub auto-merge uses the SDK’s
+public Octokit client because the extension has no auto-merge tools. The main
+agent performs the review itself.
 
 Source: [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
 
@@ -83,8 +85,10 @@ and starts a turn for these events:
 
 Automatic PR events skip payloads that are draft, closed, merged, or labeled
 `pr-bot:paused`. Finished check runs do not start a turn. Mentions still start
-turns while paused. The instructions refresh the current PR and labels because
-an event can become stale before the turn runs; closed and merged PRs end silently.
+turns while paused, but mentions on draft, closed, or merged PRs are filtered
+after a fresh GitHub read. A failed read also skips the mention. The instructions refresh the current PR
+and labels because an event can become stale before the turn runs; draft,
+closed, and merged PRs end silently.
 The channel suppresses automatic assistant-message replies on PR timelines and
 review threads. Review comments use the explicit GitHub extension tools, so a
 final response explaining a silent exit is kept off the PR. Issue conversations
@@ -95,8 +99,8 @@ still receive assistant replies.
 The extension loads the `code-review` preset plus `createOrUpdateFile`,
 `mergePullRequest`, timeline-comment reads, issue-label reads, and label controls.
 It excludes branch and PR creation, branch deletion, and `resolveReviewThread`.
-The bot can read code, post comments and reviews, commit localized fixes, and
-merge eligible PRs. Tools are namespaced, such as
+The bot can read code, post comments and formal approvals, commit localized
+fixes, and merge eligible PRs. Tools are namespaced, such as
 `github__getPullRequestContext` and `github__mergePullRequest`.
 
 The installed `resolveReviewThread` tool accepts only a thread ID. This app's
@@ -132,8 +136,11 @@ and the merge gate checks commit authorship independently of the model.
 The native `createPullRequestReview` tool requires an assessment for the same
 policy version, current turn, and signed webhook's PR. Its approval predicate
 reads the current PR through the GitHub SDK and denies publication if the PR is
-closed, merged, at another head, or cannot be verified. An assessment can report
-findings, incomplete evidence, or review-only intent; it need not permit a merge.
+draft, closed, merged, at another head, or cannot be verified. Formal `APPROVE`
+reviews additionally require an eligible assessment and the merge readiness and
+authorship checks below; only pending CI is allowed to remain. Other assessments
+can publish a `COMMENT` review, including findings and review-only results.
+An assessment need not permit a merge.
 After committing a fix, the bot refreshes and assesses the new head before
 publishing. This check narrows the race before publication; the installed SDK
 does not expose GitHub's review commit-ID parameter, so it is not atomic.
@@ -144,7 +151,7 @@ blast radius, verification, review-only intent, and rationale. It returns
 `eligible`, `human_review_required`, or `waiting_for_evidence`. Reviews publish
 that status and rationale in the existing PR summary. This local capability is
 custom because the GitHub extension has no tool for recording review judgment;
-all GitHub operations still use the extension's executor.
+GitHub reads and review publication still use the extension's executor.
 
 The native merge tool's approval predicate requires an eligible assessment from
 the same turn, policy version, and current signed webhook's PR. It then reads
@@ -156,6 +163,30 @@ the merge. An old change request is cleared by that reviewer's later approval
 or dismissal, not by a later comment. Successful, neutral, and skipped check
 runs pass; pending and failed checks do not. No configured CI signals alone
 does not block a merge; GitHub still enforces required checks and approvals.
+
+After a clean approval and summary are published, `enable-auto-merge` checks
+GitHub's merge state. A ready PR uses the existing native squash merge tool.
+A blocked PR can be queued for GitHub to merge after required approvals and
+checks pass. Queueing repeats the readiness gate, allowing pending CI but
+rejecting failed CI, incomplete evidence, outstanding change requests, paused
+PRs, and bot-authored commits. It verifies the bot has published an approval for
+the reviewed head, and supplies `expectedHeadOid` to GitHub's enable mutation.
+The SDK 1.18 extension has no enable/disable auto-merge tools, so these two
+operations use its public `createOctokit` client without a new dependency.
+
+Queueing requires **Allow auto-merge** in the target repository and a branch
+protection rule requiring at least one approval with **Dismiss stale pull
+request approvals when new commits are pushed** enabled. Ruleset-only policies
+are not currently recognized and fail closed. Keep the App out of rule bypass
+lists. No branch settings are changed by the bot. Once queued, GitHub owns the
+waiting merge: `expectedHeadOid` guards activation, and branch protection governs
+later changes. New commits need fresh approval, which can come from a human;
+queued merges do not rerun the bot's semantic assessment at merge time.
+
+The bot's “pause reviews” command first calls `disable-auto-merge`, including
+when already paused, and confirms cancellation before applying the pause label.
+Applying the pause label directly prevents new bot merge attempts but does not
+cancel an existing GitHub queue; disable auto-merge on GitHub as well.
 
 This separates review quality from merge readiness. The semantic assessment
 and publication of its summary still depend on the model's judgment and
@@ -228,7 +259,7 @@ is instructed to avoid repeating unchanged feedback. Review history stays in
 GitHub rather than a separate database. A freshness read narrows the race with
 concurrent changes but cannot make the subsequent GitHub write atomic.
 
-`agent/instructions.md` asks the agent to post findings before it merges, to
+`agent/instructions.md` asks the agent to publish its review before it merges, to
 refresh the PR, review, and CI state, and to merge only a ready change. For a
 concrete finding with a small, localized fix, the bot can commit the fix to a
 same-repository PR's head branch and report the commit instead of merging.

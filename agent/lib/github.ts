@@ -12,6 +12,10 @@ const installationResponse = z.object({ id: z.number() });
 
 const installations = new Map<string, number>();
 
+interface RepositoryCall extends Pick<GithubTokenCall, "owner" | "repo"> {
+  toolName: string;
+}
+
 // The repository's installation, not the webhook's, so a call to any repo the
 // App is installed on gets a token for that repo.
 async function installationFor(owner: string, repo: string): Promise<number> {
@@ -38,7 +42,7 @@ async function installationFor(owner: string, repo: string): Promise<number> {
   return id;
 }
 
-export async function githubToken(call?: GithubTokenCall): Promise<string> {
+export async function githubToken(call?: RepositoryCall): Promise<string> {
   if (!call?.owner || !call.repo) {
     throw new Error(
       `${call?.toolName ?? "This call"} needs an owner and repo to pick an installation`,

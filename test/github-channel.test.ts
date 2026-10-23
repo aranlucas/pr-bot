@@ -190,6 +190,8 @@ describe("native GitHub webhook integration", () => {
       const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
 
       switch (path) {
+        case "/repos/Acme/App/installation":
+          return Promise.resolve(Response.json({ id: 99 }));
         case "/app/installations/99/access_tokens":
           return Promise.resolve(
             Response.json({
@@ -204,6 +206,7 @@ describe("native GitHub webhook integration", () => {
               title: "Fix",
               state: "open",
               merged: false,
+              draft: false,
               head: { sha: "head" },
               base: { sha: "base" },
             }),
@@ -427,3 +430,61 @@ describe("native GitHub webhook integration", () => {
     );
   });
 });
+
+test.each([true, false])(
+  "a mention dispatches only while the current PR is not a draft (draft=%s)",
+  async (draft) => {
+    const f = fixture();
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
+
+      if (path.endsWith("/installation")) {
+        return Promise.resolve(Response.json({ id: 99 }));
+      }
+
+      if (path.endsWith("/access_tokens")) {
+        return Promise.resolve(
+          Response.json({
+            token: "token",
+            expires_at: new Date(Date.now() + 3600000).toISOString(),
+          }),
+        );
+      }
+
+      if (path.endsWith("/pulls/7")) {
+        return Promise.resolve(
+          Response.json({
+            number: 7,
+            state: "open",
+            merged: false,
+            draft,
+            head: { sha: "head" },
+            base: { sha: "base", ref: "main" },
+          }),
+        );
+      }
+
+      if (path.endsWith("/files")) {
+        return Promise.resolve(Response.json([changedFile]));
+      }
+
+      throw new Error(`Unexpected GitHub API request: ${path}`);
+    });
+
+    const response = await f.dispatch(
+      "issue_comment",
+      JSON.stringify({
+        ...envelope,
+        action: "created",
+        issue: {
+          number: 7,
+          pull_request: { url: "https://api.github.com/repos/Acme/App/pulls/7" },
+        },
+        comment: { id: 1, body: "@aranlucas-pr-bot review", user: envelope.sender },
+      }),
+    );
+
+    assert.strictEqual(response.status, 200);
+    assert.lengthOf(f.deliveries, draft ? 0 : 1);
+  },
+);

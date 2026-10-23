@@ -1,5 +1,5 @@
 import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
-import type { ApprovalContext, ApprovalStatus } from "eve/tools/approval";
+import type { ApprovalContext } from "eve/tools/approval";
 import { z } from "zod";
 import { githubToken } from "@/github";
 import {
@@ -58,11 +58,21 @@ const comparison = z.object({
   commits: z.array(z.object({ author: z.string().optional(), authorLogin: z.string().optional() })),
 });
 
-function denied(reason: string): ApprovalStatus {
+interface DeniedMerge {
+  type: "denied";
+  reason: string;
+}
+
+type MergeDecision = "not-applicable" | DeniedMerge;
+
+function denied(reason: string): DeniedMerge {
   return { type: "denied", reason: `Merge blocked: ${reason}` };
 }
 
-export async function approveMerge(ctx: ApprovalContext): Promise<ApprovalStatus> {
+export async function approveMerge(
+  ctx: ApprovalContext,
+  allowPendingChecks = false,
+): Promise<MergeDecision> {
   const target = currentPullRequest(ctx);
   const input = mergeInput.safeParse(ctx.toolInput);
 
@@ -131,6 +141,7 @@ export async function approveMerge(ctx: ApprovalContext): Promise<ApprovalStatus
     }
 
     const { checkRuns, combinedStatus } = fresh.checks;
+    const allowedStatuses = allowPendingChecks ? ["success", "pending"] : ["success"];
 
     if (
       checkRuns.hasMore ||
@@ -141,14 +152,15 @@ export async function approveMerge(ctx: ApprovalContext): Promise<ApprovalStatus
     }
 
     if (
-      checkRuns.checkRuns.some(
-        (run) =>
-          run.status !== "completed" ||
-          !["success", "neutral", "skipped"].includes(run.conclusion ?? ""),
+      checkRuns.checkRuns.some((run) =>
+        run.status === "completed"
+          ? !["success", "neutral", "skipped"].includes(run.conclusion ?? "")
+          : !allowPendingChecks ||
+            !["queued", "in_progress", "pending", "waiting", "requested"].includes(run.status),
       ) ||
       (combinedStatus.totalCount > 0 &&
-        (combinedStatus.state !== "success" ||
-          combinedStatus.statuses.some((status) => status.state !== "success")))
+        (!allowedStatuses.includes(combinedStatus.state) ||
+          combinedStatus.statuses.some((status) => !allowedStatuses.includes(status.state))))
     ) {
       return denied("CI is pending or unsuccessful.");
     }

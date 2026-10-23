@@ -7,6 +7,8 @@ import githubMount from "../agent/extensions/github.js";
 import type { assessmentInput } from "../agent/lib/merge-assessment.js";
 import { mergeAssessment } from "../agent/lib/merge-assessment.js";
 import recordAssessment from "../agent/tools/record-merge-assessment.js";
+import enableAutoMerge from "../agent/tools/enable-auto-merge.js";
+import disableAutoMerge from "../agent/tools/disable-auto-merge.js";
 
 const sha = "a".repeat(40);
 
@@ -136,6 +138,33 @@ async function fixture() {
     failPath: "",
   });
 
+  const queuedPr = {
+    id: "PR_42",
+    headRefOid: sha,
+    state: "OPEN",
+    isDraft: false,
+    mergeStateStatus: "BLOCKED",
+    reviews: { nodes: [{ state: "APPROVED", commit: { oid: sha } }] },
+    baseRef: {
+      branchProtectionRule: {
+        requiresApprovingReviews: true,
+        dismissesStaleReviews: true,
+        requiredApprovingReviewCount: 1,
+      },
+    },
+  };
+
+  const queueState = { repository: { autoMergeAllowed: true, pullRequest: queuedPr } };
+
+  const cancellation = z
+    .object({
+      autoMergeRequest: z.object({ enabledAt: z.string() }).nullable(),
+    })
+    .parse({ autoMergeRequest: { enabledAt: "2026-10-23T00:00:00Z" } });
+
+  const mutations: unknown[] = [];
+  let queueError = false;
+  let mergeOnEnable = false;
   let reads = 0;
 
   vi.spyOn(globalThis, "fetch").mockImplementation((request, init) => {
@@ -180,17 +209,81 @@ async function fixture() {
       return Promise.resolve(Response.json({ labels: data.labels }));
     }
 
+    if (path === "/repos/policy/app/pulls/42/reviews" && method === "POST") {
+      assert.strictEqual(
+        z.object({ event: z.string() }).parse(JSON.parse(z.string().parse(init?.body))).event,
+        "APPROVE",
+      );
+
+      return Promise.resolve(Response.json({ id: 100, state: "APPROVED" }));
+    }
+
+    if (path === "/graphql") {
+      const body = z
+        .object({ query: z.string(), variables: z.object({ input: z.unknown().optional() }) })
+        .parse(JSON.parse(z.string().parse(init?.body)));
+
+      if (body.query.includes("mutation EnableAutoMerge")) {
+        mutations.push(body.variables.input);
+
+        return Promise.resolve(
+          Response.json(
+            queueError
+              ? { errors: [{ message: "Head changed", type: "UNPROCESSABLE" }] }
+              : {
+                  data: {
+                    enablePullRequestAutoMerge: {
+                      pullRequest: {
+                        merged: mergeOnEnable,
+                        autoMergeRequest: mergeOnEnable ? null : { mergeMethod: "SQUASH" },
+                      },
+                    },
+                  },
+                },
+          ),
+        );
+      }
+
+      if (body.query.includes("query AutoMergeCancellation")) {
+        return Promise.resolve(
+          Response.json({
+            data: { repository: { pullRequest: { id: "PR_42", ...cancellation } } },
+          }),
+        );
+      }
+
+      if (body.query.includes("mutation DisableAutoMerge")) {
+        mutations.push(body.variables.input);
+
+        return Promise.resolve(
+          Response.json(
+            queueError
+              ? { errors: [{ message: "Cancellation failed", type: "UNPROCESSABLE" }] }
+              : {
+                  data: {
+                    disablePullRequestAutoMerge: { pullRequest: { autoMergeRequest: null } },
+                  },
+                },
+          ),
+        );
+      }
+
+      assert.include(body.query, "query AutoMergeReadiness");
+
+      return Promise.resolve(Response.json({ data: queueState }));
+    }
+
     if (path === "/repos/policy/app/pulls/42/reviews") {
       return Promise.resolve(Response.json(data.reviews));
     }
 
-    if (path === `/repos/policy/app/commits/${sha}/check-runs`) {
+    if (path.startsWith("/repos/policy/app/commits/") && path.endsWith("/check-runs")) {
       return Promise.resolve(
         Response.json({ total_count: data.checkTotal, check_runs: data.checkRuns }),
       );
     }
 
-    if (path === `/repos/policy/app/commits/${sha}/status`) {
+    if (path.startsWith("/repos/policy/app/commits/") && path.endsWith("/status")) {
       return Promise.resolve(
         Response.json({
           state: data.statusState,
@@ -238,6 +331,46 @@ async function fixture() {
   return {
     data,
     calls,
+    queueState,
+    cancellation,
+    mutations,
+    cancel() {
+      return disableAutoMerge.execute({}, { ...ctx, toolName: "disable-auto-merge" });
+    },
+    completeQueueImmediately() {
+      mergeOnEnable = true;
+    },
+    failQueue() {
+      queueError = true;
+    },
+    queue() {
+      return enableAutoMerge.execute({}, { ...ctx, toolName: "enable-auto-merge" });
+    },
+    async approve() {
+      const reviewTool = tools.createPullRequestReview;
+      assert.ok(reviewTool?.approval);
+
+      const reviewPolicy =
+        "request" in reviewTool.approval ? reviewTool.approval.request : reviewTool.approval;
+
+      const reviewInput = { ...target, event: "APPROVE", body: "No concrete defects found." };
+
+      const result = await reviewPolicy({
+        ...ctx,
+        toolName: "github__createPullRequestReview",
+        toolInput: reviewInput,
+        approvedTools: new Set(),
+      });
+
+      if (result === "not-applicable") {
+        await reviewTool.execute(reviewInput, {
+          ...ctx,
+          toolName: "github__createPullRequestReview",
+        });
+      }
+
+      return result;
+    },
     async merge(overrides: Partial<ApprovalContext> = {}) {
       const status = await policy({
         ...ctx,
@@ -524,4 +657,174 @@ test("a later approval clears a change request; a comment alone does not", async
   assert.deepInclude(await f.merge(), { type: "denied" });
   f.data.reviews.push({ id: 3, state: "APPROVED", user: { login: "reviewer" } });
   assert.strictEqual(await f.merge(), "not-applicable");
+});
+
+test("a clean review approves and queues the assessed head while required checks are pending", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.data.checkRuns[0].status = "in_progress";
+  f.data.checkRuns[0].conclusion = null;
+  f.data.statuses = [{ context: "build", state: "pending" }];
+  f.data.statusTotal = 1;
+  assert.strictEqual(await f.approve(), "not-applicable");
+  assert.include(f.calls, "POST /repos/policy/app/pulls/42/reviews");
+  assert.deepInclude(await f.merge(), { type: "denied" });
+  assert.deepInclude(await f.queue(), { status: "queued" });
+  assert.deepEqual(f.mutations, [
+    { pullRequestId: "PR_42", expectedHeadOid: sha, mergeMethod: "SQUASH" },
+  ]);
+});
+
+test.each([
+  "draft",
+  "paused",
+  "own commit",
+  "changes requested",
+  "failed CI",
+  "incomplete CI",
+  "head changed",
+  "review only",
+])("approval and queueing preserve the existing guard: %s", async (condition) => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment, reviewOnly: condition === "review only" }, ctx);
+
+  if (condition === "draft") {
+    f.data.pr.draft = true;
+    f.data.finalPr.draft = true;
+  }
+
+  if (condition === "paused") {
+    f.data.labels = ["pr-bot:paused"];
+  }
+
+  if (condition === "own commit") {
+    f.data.commits[0].author.login = "aranlucas-pr-bot[bot]";
+  }
+
+  if (condition === "changes requested") {
+    f.data.reviews = [{ id: 1, state: "CHANGES_REQUESTED", user: { login: "reviewer" } }];
+  }
+
+  if (condition === "failed CI") {
+    f.data.checkRuns[0].conclusion = "failure";
+  }
+
+  if (condition === "incomplete CI") {
+    f.data.checkTotal = 2;
+  }
+
+  if (condition === "head changed") {
+    f.data.pr.head.sha = "new-head";
+    f.data.finalPr.head.sha = "new-head";
+  }
+
+  assert.deepInclude(await f.approve(), { type: "denied" });
+  assert.deepInclude(await f.queue(), { status: "blocked" });
+  assert.deepEqual(f.mutations, []);
+  assert.ok(f.calls.every((call) => call !== "POST /repos/policy/app/pulls/42/reviews"));
+});
+
+test.each([
+  "disabled",
+  "stale approvals retained",
+  "no required reviews",
+  "unknown mergeability",
+  "draft",
+  "new head",
+  "mutation fails",
+])("queueing fails closed when %s", async (condition) => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  const pr = f.queueState.repository.pullRequest;
+
+  if (condition === "disabled") {
+    f.queueState.repository.autoMergeAllowed = false;
+  }
+
+  if (condition === "stale approvals retained") {
+    pr.baseRef.branchProtectionRule.dismissesStaleReviews = false;
+  }
+
+  if (condition === "no required reviews") {
+    pr.baseRef.branchProtectionRule.requiredApprovingReviewCount = 0;
+  }
+
+  if (condition === "unknown mergeability") {
+    pr.mergeStateStatus = "UNKNOWN";
+  }
+
+  if (condition === "draft") {
+    pr.isDraft = true;
+  }
+
+  if (condition === "new head") {
+    pr.headRefOid = "new-head";
+  }
+
+  if (condition === "mutation fails") {
+    f.failQueue();
+  }
+
+  assert.deepInclude(await f.queue(), { status: "blocked" });
+  assert.lengthOf(f.mutations, condition === "mutation fails" ? 1 : 0);
+});
+
+test("a ready approved head uses the native merge path without enabling auto-merge", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.queueState.repository.pullRequest.mergeStateStatus = "CLEAN";
+  assert.deepInclude(await f.queue(), { status: "ready" });
+  assert.deepEqual(f.mutations, []);
+  assert.strictEqual(await f.merge(), "not-applicable");
+  assert.strictEqual(f.calls.at(-1), "PUT /repos/policy/app/pulls/42/merge");
+});
+
+test("queueing requires a published approval at the assessed head", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.queueState.repository.pullRequest.reviews.nodes[0].commit.oid = "older-head";
+  assert.deepInclude(await f.queue(), { status: "blocked" });
+  assert.deepEqual(f.mutations, []);
+});
+
+test.each([true, false])(
+  "pausing cancels an existing queue idempotently (queued=%s)",
+  async (queued) => {
+    const f = await fixture();
+
+    if (!queued) {
+      f.cancellation.autoMergeRequest = null;
+    }
+
+    assert.deepInclude(await f.cancel(), { status: "disabled" });
+    assert.deepEqual(f.mutations, queued ? [{ pullRequestId: "PR_42" }] : []);
+  },
+);
+
+test("failed cancellation cannot report success", async () => {
+  const f = await fixture();
+  f.failQueue();
+  assert.deepInclude(await f.cancel(), { status: "blocked" });
+});
+
+test.each([enableAutoMerge, disableAutoMerge])(
+  "unsigned auto-merge calls cannot access GitHub",
+  async (tool) => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    assert.deepInclude(
+      await tool.execute(
+        {},
+        { ...ctx, session: { ...ctx.session, auth: { current: null, initiator: null } } },
+      ),
+      { status: "blocked" },
+    );
+    assert.lengthOf(fetch.mock.calls, 0);
+  },
+);
+
+test("a queue request that GitHub merges immediately is reported as merged", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.completeQueueImmediately();
+  assert.deepInclude(await f.queue(), { status: "merged" });
 });

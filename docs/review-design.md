@@ -84,8 +84,14 @@ that finds no defects can still require human judgment because the change is
 irreversible, broad, or materially uncertain. A mixed PR qualifies only when
 every material change has been assessed and qualifies.
 
-The implementation uses the installed extension's existing approval predicate
-and executor; it adds no GitHub API wrapper. The custom assessment tool fills
+The implementation uses the installed extension's approval predicates and
+executor for reviews and direct merges. The extension has no auto-merge tools;
+`enable-auto-merge` and `disable-auto-merge` use the SDK's public `createOctokit`
+client for those missing operations. Queue activation pins the expected head,
+requires the bot's published approval, and requires branch protection that
+dismisses stale approvals. GitHub governs the queued merge after activation;
+a new head needs fresh approval but does not require a fresh bot assessment.
+The custom assessment tool fills
 the missing capability for structured local review judgment. Policy version and
 turn binding prevent earlier assessments from authorizing later work. Aggregate
 risk scoring, source-history calibration, volume controls, and outcome tracking

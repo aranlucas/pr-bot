@@ -5,7 +5,7 @@ export const botName = "aranlucas-pr-bot";
 
 export const pausedLabel = "pr-bot:paused";
 
-export const mergePolicyVersion = 1;
+export const mergePolicyVersion = 2;
 
 export const assessmentInput = z.object({
   headSha: z.string().min(1),
