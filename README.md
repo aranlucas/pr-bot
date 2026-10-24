@@ -384,6 +384,14 @@ the model to retain a coverage ledger across compaction and reuse evidence at
 the same commit instead of fetching the same ranges again. These instructions
 reduce repeated work but do not impose a deterministic read limit.
 
+`agent/agent.ts` requests `reasoning: "low"` through Eve's native configuration.
+The OpenAI-compatible adapter sends `reasoning_effort: "low"` on each model
+request, including tool-loop follow-ups. The router and selected provider must
+honor it: FreeLLMAPI 0.16.9 drops this field for Cloudflare, so that route still
+uses the provider default until the router forwards it. The
+[latency investigation](docs/reliability/2026-10-24-2040Z.md) records the evidence
+and remaining production verification.
+
 Eve 0.82 has no public setting to disable model or workflow retries. Its
 framework defaults remain enabled, even when the LLM API also retries.
 

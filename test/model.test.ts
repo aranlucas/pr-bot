@@ -173,13 +173,13 @@ describe.each([
     { useToolLoop: false, streaming: true },
     { useToolLoop: true, streaming: true },
   ])(
-    "identifies PR Bot on every step (tool loop: $useToolLoop, streaming: $streaming)",
+    "identifies PR Bot and requests low reasoning on every step (tool loop: $useToolLoop, streaming: $streaming)",
     async ({ useToolLoop, streaming }) => {
       vi.stubEnv("FREELLM_API_BASE_URL", baseURL);
       vi.stubEnv("FREELLM_API_KEY", "test-model-key");
       vi.stubEnv("FREELLM_MODEL", "auto");
       vi.resetModules();
-      const { reviewModel } = await import("@/model");
+      const { default: agentConfig } = await import("../agent/agent.js");
 
       const input = {
         owner: "acme",
@@ -214,6 +214,7 @@ describe.each([
         const body = z
           .object({
             model: z.string(),
+            reasoning_effort: z.string().optional(),
             stream: z.boolean().optional(),
             stream_options: z.object({ include_usage: z.boolean() }).optional(),
             response_format: z.unknown().optional(),
@@ -224,6 +225,7 @@ describe.each([
           .parse(JSON.parse(request.body));
 
         assert.strictEqual(body.model, "auto");
+        assert.strictEqual(body.reasoning_effort, "low");
         assert.strictEqual(body.stream ?? false, streaming);
         assert.deepEqual(body.stream_options, streaming ? { include_usage: true } : undefined);
         assert.strictEqual(body.response_format, undefined);
@@ -292,7 +294,8 @@ describe.each([
       });
 
       const settings = {
-        model: reviewModel,
+        model: agentConfig.model,
+        reasoning: agentConfig.reasoning,
         tools: {
           github__addPullRequestComment: tool({
             description: "Post the review",
