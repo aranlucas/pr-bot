@@ -24,7 +24,7 @@ const ctx: ToolContext = {
   messages: [],
 };
 
-test("the mounted extension publishes reviews, replies, pause controls, and merges through the GitHub App", async () => {
+test("the mounted extension publishes reviews, replies, and pause controls through the GitHub App", async () => {
   const calls: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
@@ -110,16 +110,6 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
       return Promise.resolve(Response.json({ message: "Not Found" }, { status: 404 }));
     }
 
-    if (path === "/repos/acme/app/pulls/42/merge") {
-      assert.strictEqual(
-        z.object({ merge_method: z.string() }).parse(JSON.parse(z.string().parse(init?.body)))
-          .merge_method,
-        "squash",
-      );
-
-      return Promise.resolve(Response.json({ merged: true, sha: "merged", message: "Merged" }));
-    }
-
     throw new Error(`Unexpected API path: ${path}`);
   });
 
@@ -140,7 +130,7 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
   assert.ok(tools.listCheckRuns);
   assert.ok(tools.getCombinedStatus);
   assert.ok(tools.addPullRequestComment);
-  assert.ok(tools.mergePullRequest);
+  assert.isUndefined(tools.mergePullRequest);
   assert.ok(tools.createOrUpdateFile);
   assert.isUndefined(tools.createBranch);
   assert.isUndefined(tools.createPullRequest);
@@ -217,14 +207,8 @@ test("the mounted extension publishes reviews, replies, pause controls, and merg
     "github_tools.NOT_FOUND",
   );
 
-  const merge = await tools.mergePullRequest.execute(
-    { ...input, mergeMethod: "squash" },
-    { ...ctx, toolName: "github__mergePullRequest" },
-  );
-
-  assert.strictEqual(z.object({ merged: z.boolean() }).parse(merge).merged, true);
   assert.ok(calls.includes("POST /repos/acme/app/issues/42/comments"));
-  assert.ok(calls.includes("PUT /repos/acme/app/pulls/42/merge"));
+  assert.ok(!calls.includes("PUT /repos/acme/app/pulls/42/merge"));
   // All calls target acme/app, so the installation is looked up once.
   assert.strictEqual(calls.filter((call) => call === "GET /repos/acme/app/installation").length, 1);
 }, 15_000);

@@ -11,6 +11,8 @@ import type {
 import type RecordAssessment from "../agent/tools/record-merge-assessment.js";
 import type EnableAutoMerge from "../agent/tools/enable-auto-merge.js";
 import type DisableAutoMerge from "../agent/tools/disable-auto-merge.js";
+import type MergeReviewedPullRequest from "../agent/tools/merge-reviewed-pull-request.js";
+import type { approveMerge as ApproveMerge } from "../agent/lib/merge-policy.js";
 
 let github: typeof GithubTools;
 
@@ -24,11 +26,15 @@ let enableAutoMerge: typeof EnableAutoMerge;
 
 let disableAutoMerge: typeof DisableAutoMerge;
 
+let mergeReviewedPullRequest: typeof MergeReviewedPullRequest;
+
+let approveMerge: typeof ApproveMerge;
+
 const sha = "a".repeat(40);
 
 const target = { owner: "policy", repo: "app", pullNumber: 42 };
 
-const input = { ...target, mergeMethod: "squash" };
+const input = { ...target, mergeMethod: "squash" as const };
 
 const assessment = {
   headSha: sha,
@@ -118,6 +124,9 @@ const fixtureData = z.object({
 
 beforeEach(async () => {
   vi.resetModules();
+  mergeReviewedPullRequest = (await import("../agent/tools/merge-reviewed-pull-request.js"))
+    .default;
+  approveMerge = (await import("../agent/lib/merge-policy.js")).approveMerge;
   github = (await import("@github-tools/eve-extension/tools")).github;
   githubMount = (await import("../agent/extensions/github.js")).default;
   mergeAssessment = (await import("../agent/lib/merge-assessment.js")).mergeAssessment;
@@ -188,6 +197,9 @@ async function fixture() {
   let queueError = false;
   let mergeOnEnable = false;
   let reads = 0;
+  let mergeHead = sha;
+  let mergeReply: Response | Error | null = null;
+  const mergeBodies: unknown[] = [];
 
   vi.spyOn(globalThis, "fetch").mockImplementation((request, init) => {
     const url = new URL(request instanceof Request ? request.url : request.toString());
@@ -337,13 +349,22 @@ async function fixture() {
 
     if (path === "/repos/policy/app/pulls/42/merge") {
       assert.strictEqual(method, "PUT");
-      assert.strictEqual(
-        z.object({ merge_method: z.string() }).parse(JSON.parse(z.string().parse(init?.body)))
-          .merge_method,
-        "squash",
-      );
+      const body: unknown = JSON.parse(z.string().parse(init?.body));
+      mergeBodies.push(body);
+      assert.deepEqual(body, { sha, merge_method: "squash" });
+      assert.strictEqual(init?.signal, ctx.abortSignal);
 
-      return Promise.resolve(Response.json({ merged: true, sha: "merged" }));
+      if (mergeHead !== sha) {
+        return Promise.resolve(Response.json({ message: "Head changed" }, { status: 409 }));
+      }
+
+      if (mergeReply instanceof Error) {
+        return Promise.reject(mergeReply);
+      }
+
+      return Promise.resolve(
+        mergeReply ?? Response.json({ merged: true, sha: "merged", message: "Merged" }),
+      );
     }
 
     throw new Error(`Unexpected request: ${method} ${url}`);
@@ -359,10 +380,8 @@ async function fixture() {
     messages: [],
   });
 
-  const tool = tools.mergePullRequest;
-  assert.ok(tool?.approval);
+  assert.isUndefined(tools.mergePullRequest);
   assert.ok(githubMount);
-  const policy = "request" in tool.approval ? tool.approval.request : tool.approval;
 
   return {
     data,
@@ -370,6 +389,19 @@ async function fixture() {
     queueState,
     cancellation,
     mutations,
+    mergeBodies,
+    pushBeforeMerge() {
+      mergeHead = "b".repeat(40);
+    },
+    replyToMerge(reply: Response | Error) {
+      mergeReply = reply;
+    },
+    mergeResult() {
+      return mergeReviewedPullRequest.execute(input, {
+        ...ctx,
+        toolName: "merge-reviewed-pull-request",
+      });
+    },
     cancel() {
       return disableAutoMerge.execute({}, { ...ctx, toolName: "disable-auto-merge" });
     },
@@ -408,24 +440,23 @@ async function fixture() {
       return result;
     },
     async merge(overrides: Partial<ApprovalContext> = {}) {
-      const status = await policy({
-        ...ctx,
-        approvedTools: new Set(),
-        toolInput: input,
-        toolName: "github__mergePullRequest",
-        ...overrides,
-      });
-
-      if (status === "not-applicable") {
-        await tool.execute(input, { ...ctx, toolName: "github__mergePullRequest" });
+      // Keep the malformed tool-input cases at the shared policy's untyped boundary.
+      if (overrides.toolInput !== undefined) {
+        return approveMerge({ ...ctx, approvedTools: new Set(), toolInput: input, ...overrides });
       }
 
-      return status;
+      const result = await mergeReviewedPullRequest.execute(input, {
+        ...ctx,
+        ...overrides,
+        toolName: "merge-reviewed-pull-request",
+      });
+
+      return "type" in result ? result : "not-applicable";
     },
   };
 }
 
-test("a recorded, complete review allows the native squash merge after fresh GitHub checks", async () => {
+test("a recorded, complete review allows the reviewed-head squash merge after fresh GitHub checks", async () => {
   const f = await fixture();
 
   const result = z
@@ -812,7 +843,7 @@ test.each([
   assert.lengthOf(f.mutations, condition === "mutation fails" ? 1 : 0);
 });
 
-test("a ready approved head uses the native merge path without enabling auto-merge", async () => {
+test("a ready approved head uses the reviewed-head merge path without enabling auto-merge", async () => {
   const f = await fixture();
   await recordAssessment.execute({ ...assessment }, ctx);
   f.queueState.repository.pullRequest.mergeStateStatus = "CLEAN";
@@ -903,4 +934,53 @@ test("a queue request that GitHub merges immediately is reported as merged", asy
   const endsTurn = enableAutoMerge.endsTurn;
   assert.ok(endsTurn && endsTurn !== true);
   assert.isTrue(await endsTurn(result));
+});
+
+test("a push after the final readiness read prevents a merge without an unpinned retry", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.pushBeforeMerge();
+
+  await expect(f.mergeResult()).rejects.toThrow("Refresh the PR and reassess");
+  assert.deepEqual(f.mergeBodies, [{ sha, merge_method: "squash" }]);
+  assert.strictEqual(f.calls.filter((call) => call === "GET /repos/policy/app/pulls/42").length, 2);
+});
+
+test.each([403, 405, 422, 500])(
+  "a failed merge with HTTP %i does not leak its body or retry",
+  async (status) => {
+    const f = await fixture();
+    await recordAssessment.execute({ ...assessment }, ctx);
+    f.replyToMerge(Response.json({ message: "private repository response" }, { status }));
+
+    await expect(f.mergeResult()).rejects.toThrow(
+      "GitHub could not confirm the reviewed-head merge. Refresh the PR and reassess before retrying.",
+    );
+    assert.lengthOf(f.mergeBodies, 1);
+  },
+);
+
+test("a lost merge response does not retry an ambiguous write", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.replyToMerge(new Error("connection lost"));
+  await expect(f.mergeResult()).rejects.toThrow("could not confirm");
+  assert.lengthOf(f.mergeBodies, 1);
+});
+
+test("an invalid merge response cannot claim success", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  f.replyToMerge(Response.json({ sha: "merged", message: "Merged" }));
+  await expect(f.mergeResult()).rejects.toThrow("could not confirm");
+  assert.lengthOf(f.mergeBodies, 1);
+});
+
+test("GitHub's explicit merged-false response remains visible", async () => {
+  const f = await fixture();
+  await recordAssessment.execute({ ...assessment }, ctx);
+  const reply = { merged: false, sha, message: "Not merged" };
+  f.replyToMerge(Response.json(reply));
+  assert.deepEqual(await f.mergeResult(), reply);
+  assert.lengthOf(f.mergeBodies, 1);
 });

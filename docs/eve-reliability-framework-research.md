@@ -208,8 +208,13 @@ queue or global mutation pacing from it.
 `sha` precondition and returns conflict when it differs. The installed SDK's
 `mergePullRequestInputSchema` and request omit that parameter. The app's
 [merge policy](../agent/lib/merge-policy.ts) checks the head again after gathering
-evidence but cannot make the later merge atomic. Prefer adding the precondition
-upstream and enabling the upgraded extension. See [GitHub merge API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request)
+evidence. The local [reviewed-head merge tool](../agent/tools/merge-reviewed-pull-request.ts)
+now supplies the captured assessment SHA through the SDK's public Octokit client,
+and the extension excludes the unpinned native merge tool. The existing Vitest
+suite verifies a head change after the final readiness read is rejected. General
+HTTP/transport retries are disabled for this write with `request.retries: 0`;
+the SDK's separate rate-limit handling still applies. Adding the precondition
+upstream would allow restoring the extension tool. See [GitHub merge API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request)
 and SDK `src/core/pull-requests.ts` in the core map above.
 
 **Recommended validations:**

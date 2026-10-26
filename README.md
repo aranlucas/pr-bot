@@ -5,8 +5,9 @@
 An [Eve](https://eve.dev/docs) agent that reviews GitHub pull requests, posts
 findings, and merges ready changes. It runs as a GitHub App on Vercel and uses
 [@github-tools/eve-extension](https://github-tools.com/frameworks/eve-extension)
-for GitHub reviews and direct merges. Native GitHub auto-merge uses the SDK’s
-public Octokit client because the extension has no auto-merge tools. The main
+for GitHub reviews. Direct merges and native GitHub auto-merge use the SDK’s
+public Octokit client because the extension cannot pin direct merges to a SHA
+and has no auto-merge tools. The main
 agent performs the review itself.
 
 Source: [aranlucas/pr-bot](https://github.com/aranlucas/pr-bot).
@@ -110,11 +111,13 @@ still receive assistant replies.
 ## What the bot can do
 
 The extension loads the `code-review` preset plus `createOrUpdateFile`,
-`mergePullRequest`, timeline-comment reads, issue-label reads, and label controls.
-It excludes branch and PR creation, branch deletion, and `resolveReviewThread`.
+timeline-comment reads, issue-label reads, and label controls.
+It excludes unpinned `mergePullRequest`, branch and PR creation, branch deletion,
+and `resolveReviewThread`.
 The bot can read code, post comments and formal approvals, commit localized
 fixes, and merge eligible PRs. Tools are namespaced, such as
-`github__getPullRequestContext` and `github__mergePullRequest`.
+`github__getPullRequestContext`. The local `merge-reviewed-pull-request` tool
+performs direct squash merges after the shared merge policy passes.
 
 The installed `resolveReviewThread` tool accepts only a thread ID. This app's
 token provider needs `owner` and `repo` to select an installation, so that tool
@@ -122,8 +125,8 @@ is excluded until the extension can carry repository context for it. The bot can
 verify a fix and reply in its review thread; authors resolve the conversation.
 
 `requireApproval: false` lets writes run without a prompt, because no one
-is present to approve a webhook turn. The review and merge overrides use
-deterministic approval predicates that permit or deny the call without a prompt.
+is present to approve a webhook turn. The review override and direct merge tool use
+deterministic checks that permit or deny the call without a prompt.
 Don't switch `preset` or `requireApproval`
 to `'auto'`. Both call an AI Gateway evaluation model that free-tier Vercel teams
 cannot use. When that call fails, the extension falls back to the read-only
@@ -166,7 +169,7 @@ that status and rationale in the existing PR summary. This local capability is
 custom because the GitHub extension has no tool for recording review judgment;
 GitHub reads and review publication still use the extension's executor.
 
-The native merge tool's approval predicate requires an eligible assessment from
+`merge-reviewed-pull-request` requires an eligible assessment from
 the same turn, policy version, and current signed webhook's PR. It then reads
 fresh PR state, labels, reviews, checks, statuses, and the base-to-head commit
 comparison. It permits only squash merges and denies paused, stale, closed,
@@ -178,7 +181,7 @@ runs pass; pending and failed checks do not. No configured CI signals alone
 does not block a merge; GitHub still enforces required checks and approvals.
 
 After a clean approval and summary are published, `enable-auto-merge` checks
-GitHub's merge state. A ready PR uses the existing native squash merge tool.
+GitHub's merge state. A ready PR uses `merge-reviewed-pull-request`.
 A blocked PR can be queued for GitHub to merge after required approvals and
 checks pass. Queueing repeats the readiness gate, allowing pending CI but
 rejecting failed CI, incomplete evidence, outstanding change requests, paused
@@ -212,9 +215,24 @@ cancel an existing GitHub queue; disable auto-merge on GitHub as well.
 
 This separates review quality from merge readiness. The semantic assessment
 and publication of its summary still depend on the model's judgment and
-instructions. The native merge tool has no head-SHA precondition; the gate
-rechecks the head after gathering evidence, but the subsequent merge is not
-atomic. No learned risk score or incident-history database is introduced.
+instructions. Direct merges send the captured assessment's `headSha` as GitHub's
+[`sha` precondition](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request).
+A push after the last readiness read makes GitHub reject the merge; the tool
+never retries without that SHA. The model supplies the current PR target and
+squash strategy, but cannot choose a replacement SHA. Failed or ambiguous writes
+require a fresh read and assessment before retrying. GitHub's explicit
+`merged: false` result remains visible, and private API error bodies are omitted
+from thrown errors. Labels, reviews, and CI are still readiness snapshots;
+GitHub branch protection remains authoritative at merge time.
+
+The SDK 1.18 merge-tool schema and executor omit `sha`, and the extension's
+per-tool overrides cannot replace execution or input schemas. This local tool
+therefore uses the SDK's public `createOctokit` client and existing token provider
+for that missing operation, as the auto-merge tools already do. It adds no client
+library, maintenance script, or retry loop. Native Vitest tests cover the mounted
+extension's exclusion, readiness denials, unchanged-head success, a push between
+the last read and write, unsuccessful responses, and transport failures.
+No learned risk score or incident-history database is introduced.
 
 ## Sandbox
 
