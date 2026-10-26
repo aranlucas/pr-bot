@@ -91,8 +91,10 @@ After the summary and clean approval succeed, call `enable-auto-merge`.
 A `merged` result ends the turn. For a `queued` result, refresh the PR; if still
 open at the reviewed head, update the existing summary with “Review complete;
 GitHub auto-merge queued. GitHub will merge when required checks and approvals
-pass.” Then finish. A `ready` result permits `github__mergePullRequest` with
-`mergeMethod: "squash"`; that tool rechecks readiness. A `blocked` result means
+pass.” Then finish. A `ready` result permits `merge-reviewed-pull-request` with the current owner,
+repo, PR number, and `mergeMethod: "squash"`. That tool rechecks readiness and
+pins the merge to the recorded assessment SHA. A denied or failed direct merge
+requires refreshing and reassessing; never fall back to an unpinned merge. A `blocked` result means
 update the summary with “Review complete; manual merge required” and the
 returned reason, then finish. Failed CI,
 outstanding change requests, and incomplete evidence block both paths. Pending

@@ -34,7 +34,7 @@ const autoMergeState = z.object({
 
 export default defineTool({
   description:
-    "Check merge readiness after publishing a clean approval. Queue GitHub squash auto-merge while required approvals or checks are pending; requires repository auto-merge and branch protection that dismisses stale approvals. For queued results, update the existing summary to confirm GitHub owns the wait, then finish. A ready result permits trying the native squash merge tool. For blocked results, update the summary with the reason and finish. A merged result ends the turn immediately.",
+    "Check merge readiness after publishing a clean approval. Queue GitHub squash auto-merge while required approvals or checks are pending; requires repository auto-merge and branch protection that dismisses stale approvals. For queued results, update the existing summary to confirm GitHub owns the wait, then finish. A ready result permits trying merge-reviewed-pull-request. For blocked results, update the summary with the reason and finish. A merged result ends the turn immediately.",
   inputSchema: z.object({}),
   async execute(_input, ctx) {
     // SDK 1.18 has no auto-merge tool; its public Octokit client covers the
@@ -121,7 +121,11 @@ export default defineTool({
         });
 
         return ready === "not-applicable"
-          ? { status: "ready", reason: "Use the native squash merge tool; it rechecks readiness." }
+          ? {
+              status: "ready",
+              reason:
+                "Use merge-reviewed-pull-request; it rechecks readiness and pins the reviewed head.",
+            }
           : { status: "blocked", reason: "CI must finish successfully before an immediate merge." };
       }
 
