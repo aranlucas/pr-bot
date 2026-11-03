@@ -212,6 +212,9 @@ importers:
       lint-staged:
         specifier: ^17.6.0
         version: 17.6.0
+      octokit:
+        specifier: 5.0.5
+        version: 5.0.5
       oxfmt:
         specifier: ^0.74.0
         version: 0.74.0

@@ -40,6 +40,14 @@ Run `pnpm test` for the Vitest suite. Use `pnpm check` for lint, format,
 typecheck, and tests together. Run `pnpm build` to confirm that `eve build`
 compiles the agent and prepares the sandbox snapshot.
 
+The fixture suites retain Octokit's authentication, request serialization,
+pagination, and error handling, but configure its notification throttle off in
+`test/setup.ts`. Their `fetch` responses are synthetic, so GitHub's three-second
+notification spacing adds waiting without exercising a live rate limit.
+Vitest inlines the GitHub Tools packages so this test-only constructor default
+also reaches their internal clients. Production clients keep their normal
+throttling.
+
 ## Agent structure
 
 The layout follows the
