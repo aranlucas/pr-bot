@@ -3,14 +3,6 @@
 Updated 2026-10-26. Proposed releases, not delivered capabilities. Digits and MCP
 products take portfolio priority; PR Bot supports their maintenance workflow.
 
-## Starting point
-
-Baseline: `62cb5e660f5a5bccd96d05834c883e384d0002c7`. The
-[README](README.md) describes signed-webhook review, typed merge assessments,
-localized fixes, exact-reviewed-SHA squash merges, GitHub auto-merge queueing,
-pause controls and metadata-only diagnostics. Finishing a review while CI runs
-and queueing an eligible merge already exist.
-
 Target user: a maintainer who wants a trustworthy review and a clear next action
 without repeatedly inspecting bot logs or paying for duplicate work.
 
@@ -66,7 +58,5 @@ the next action, repeated comments, accepted findings and incomplete reviews.
 Use existing metadata and voluntary feedback; exclude private code and review
 bodies from product analytics. This is an evaluation plan, not a measured saving.
 
-Follow [review standards](coding-standards.md). Prefer existing Eve/GitHub tools;
-add custom behavior only for a demonstrated missing capability, with tests in
-the existing runner. Keep Shipshape's portfolio prioritization separate from
-this bot's responsibility for one PR.
+Keep Shipshape's portfolio prioritization separate from this bot's responsibility
+for one PR.
