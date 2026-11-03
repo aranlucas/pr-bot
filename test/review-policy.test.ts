@@ -110,18 +110,11 @@ function fixture(pr: Partial<typeof freshPr> = freshPr, status = 200) {
   return calls;
 }
 
-test("a review-only assessment with findings can publish on its current head", async () => {
-  const calls = fixture();
-  assert.strictEqual(await approveReview(ctx), "not-applicable");
-  assert.include(calls, "GET /repos/review-policy/app/pulls/42");
-});
-
 test.each([
-  { head: { sha: "new-head" }, state: "open", merged: false },
   { draft: true },
   { head: { sha: "reviewed-head" }, state: "closed", merged: false },
   { head: { sha: "reviewed-head" }, state: "closed", merged: true },
-])("a stale or closed PR cannot publish the review", async (pr) => {
+])("a draft, closed, or merged PR cannot publish the review", async (pr) => {
   fixture(pr);
   assert.deepInclude(await approveReview(ctx), { type: "denied" });
 });
@@ -194,6 +187,14 @@ test.each(["reviewed-head", "new-head"])(
 
     const policy = "request" in tool.approval ? tool.approval.request : tool.approval;
     const decision = await policy(ctx);
+
+    assert.include(calls, "GET /repos/review-policy/app/pulls/42");
+
+    if (sha === "reviewed-head") {
+      assert.strictEqual(decision, "not-applicable");
+    } else {
+      assert.deepInclude(decision, { type: "denied" });
+    }
 
     if (decision === "not-applicable") {
       const output = await tool.execute(

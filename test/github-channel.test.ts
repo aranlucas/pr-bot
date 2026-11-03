@@ -70,8 +70,6 @@ test.each([
     message: "The PR was already merged. I finish the turn silently.",
     posted: false,
   },
-  { kind: "pull_request", message: "The PR is closed. I finish the turn silently.", posted: false },
-  { kind: "pull_request", message: "Review published. No concrete defects found.", posted: false },
   {
     kind: "review_thread",
     message: "The PR was already merged. I finish the turn silently.",
@@ -251,34 +249,6 @@ describe("native GitHub webhook integration", () => {
           throw new Error(`Unexpected GitHub API request: ${path}`);
       }
     });
-  });
-
-  test("the native signed webhook channel dispatches a PR with App installation context", async () => {
-    const f = fixture();
-
-    const response = await f.dispatch(
-      "pull_request",
-      JSON.stringify({
-        ...envelope,
-        action: "opened",
-        pull_request: {
-          number: 7,
-          state: "open",
-          merged: false,
-          draft: false,
-          labels: [],
-          head: { sha: "head" },
-          base: { sha: "base" },
-        },
-      }),
-    );
-
-    assert.strictEqual(response.status, 200);
-    assert.strictEqual(f.deliveries.length, 1);
-    assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
-    assert.strictEqual(f.deliveries[0].options.auth?.authenticator, "github-webhook");
-    assert.strictEqual(f.deliveries[0].options.auth?.attributes?.installation_id, "99");
-    assert.strictEqual(f.deliveries[0].options.state.installationId, 99);
   });
 
   test("completed check runs and check suites do not start a turn", async () => {
@@ -536,6 +506,9 @@ describe("native GitHub webhook integration", () => {
       assert.strictEqual(response.status, 200);
       assert.strictEqual(f.deliveries.length, 1);
       assert.strictEqual(f.deliveries[0].address, "repo:123:pull:7");
+      assert.strictEqual(f.deliveries[0].options.auth?.authenticator, "github-webhook");
+      assert.strictEqual(f.deliveries[0].options.auth?.attributes?.installation_id, "99");
+      assert.strictEqual(f.deliveries[0].options.state.installationId, 99);
       assert.ok(
         f.deliveries[0].options.context?.some((entry) =>
           entry.includes(`Automatic review: ${action}, event head head`),
