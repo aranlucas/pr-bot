@@ -7,6 +7,9 @@ export default defineConfig({
   },
   test: {
     include: ["test/**/*.test.ts"],
+    server: {
+      deps: { inline: ["@github-tools/sdk", "@github-tools/eve-extension"] },
+    },
     setupFiles: ["test/setup.ts"],
     restoreMocks: true,
     unstubEnvs: true,
