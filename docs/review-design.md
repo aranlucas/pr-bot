@@ -1,117 +1,85 @@
 # Review design
 
-These changes adapt Matt Pocock's
-[Fixing the PR Bottleneck](https://www.youtube.com/watch?v=LlgiOCmFG_w),
-published by AI Engineer on September 26, 2026. The original English automatic
-captions and metadata were retrieved with the `yt-dlp` CLI. The upload warns of
-poor audio at the start; the design uses the later review examples.
+## Review judgment
 
-## Lessons applied
-
-- Around 3–8 minutes: green checks can conceal tautological assertions,
-  source-structure checks posing as behavior tests, and mocks that remove the
-  relevant failures. The review skill now examines which changed behavior a test
-  can actually disprove and ties test findings to specific failure cases.
-- Around 8–14 minutes: simple module interfaces support behavioral tests, and
-  review deserves its own context and repository-specific standards. PR Bot
-  already runs independently of the implementing agent. It now explicitly loads
-  its review skill and reads `coding-standards.md` from the target PR's base
-  branch. PR Bot's own standards are supplied in that file in this repository.
-- Around 16–19 minutes: human attention should follow reversibility and blast
-  radius. Reviews now explain merge danger and the next action. An irreversible
-  external effect cannot be undone merely by reverting code. The instructions
-  reserve automatic merging for reversible, localized changes; a human reviews
-  and merges other materially risky changes.
-- Around 20–22 minutes: review should improve the process behind the next PR.
-  A confirmed gap can yield one specific proposed check or standards update,
-  using evidence already gathered. Policy changes remain separate reviewable
-  changes, rather than a bot changing its own policy while reviewing a PR.
-
-Keep clean low-risk reviews short. Use a small before/after example or pseudocode
-when it makes the behavior faster to understand. Neither generic design advice
-nor a standards preference becomes a defect without a concrete consequence.
-
-## Prompt size
+The review criteria adapt Matt Pocock's
+[Fixing the PR Bottleneck](https://www.youtube.com/watch?v=LlgiOCmFG_w)
+(AI Engineer, September 26, 2026): tests should disprove plausible broken
+behavior, reviewers need repository-specific standards, and human attention
+should follow reversibility and blast radius. Reverting code cannot undo an
+external message, charge, or data loss. Green CI therefore cannot authorize
+merging an irreversible, broad, or materially uncertain change.
 
 Michael Thiessen's
 [PR review agent thread](https://x.com/MichaelThiessen/status/2113346979757523382)
-(October 2026) reports that replacing a multi-stage review pipeline (fan-out
-angles, clean-context verification, deterministic grounding filters) with a
-single-shot prompt on a frontier model cut cost and latency and found more real
-issues. PR Bot already reviews in one agent pass (#9). The remaining lesson is
-to keep the prompt from accreting process: the instructions and review skill had
-grown to about 3,100 words with judgment rules stated in both, spending
-context on every turn.
+(October 2026) motivated reducing duplicated prompt process rather than adding
+review stages. Its reported cost/quality improvement is not a measurement of
+this bot. [Standing policy](../agent/instructions.md) owns target, publication,
+fix, and merge authority; [review-changes](../agent/skills/review-changes/SKILL.md)
+owns review judgment. Prefer a deterministic gate for enforceable invariants;
+add prompt rules for demonstrated judgment failures.
 
-`agent/instructions.md` now holds standing policy only: target, untrusted data,
-pause and update handling, publication, fixes, and merging. `review-changes` is
-the single source for review judgment. Each keeps hard guardrails, tool quirks
-the model cannot discover (`filesOmitted`, the single-summary rule), and the
-review criteria from the sections above; step-by-step reasoning guidance was
-removed. Status derivation lives in `record-merge-assessment`, so the prompt
-describes its inputs rather than restating its rules. Add a rule only when a
-run shows the model's default behavior is wrong, and prefer a code check when
-the behavior can be enforced.
-
-The thread's other lever, staying on the frontier model, is a deployment
-choice: `FREELLM_MODEL` defaults to the model service's `auto` route.
+The [RADAR paper](https://arxiv.org/pdf/2605.30208), Sections 2.6–2.8, motivates
+separating semantic assessment from readiness. An assessment records judgment
+at a reviewed SHA; fresh GitHub evidence independently controls the write.
+Neither layer replaces branch protection. Mandatory human approval belongs in
+GitHub policy, with the App excluded from bypass lists.
 
 ## Capability boundaries
 
-The talk also recommends reviewers committing fixes. The bot does this through
-the extension's `createOrUpdateFile` tool rather than a sandbox checkout:
-`github__createOrUpdateFile` commits one file per call to the PR's head branch,
-with branch and PR creation tools excluded. Fixes are not run before they are
-committed; the repository's CI checks them on the new head. The tool pins each
-commit to the branch head at the time of the call, not to the reviewed SHA, so
-the instructions refresh the PR and compare its head with the reviewed SHA
-before writing. The bot never merges a PR containing its own commits.
+Prefer the GitHub Tools extension. Local operations fill specific gaps in the
+installed SDK 1.18 / extension 0.9 surface:
 
-Merge-danger classification remains model judgment. The `record-merge-assessment`
-tool records that judgment against the reviewed SHA and current turn in Eve
-session state. The native merge tool's approval override requires an eligible
-assessment and independently checks the current target, strategy, readiness,
-and commit authorship. Repository owners should enforce mandatory human
-approval with GitHub branch protection when required. The native merge tool
-lacks a head-SHA precondition; the final context check narrows but does not
-eliminate the race between review and merge.
+| Operation                 | Missing native capability                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Record merge assessment   | Structured local review judgment bound to policy version, turn, and signed webhook target.                     |
+| Direct squash merge       | The extension merge tool omits GitHub's `sha` precondition; its overrides cannot replace schemas or execution. |
+| Enable/disable auto-merge | The extension has no tools for these GraphQL mutations.                                                        |
+| Resolve App identity      | No authenticated-App metadata tool; the public Octokit client exposes `GET /app`.                              |
 
-## Risk-aware eligibility
+GitHub operations reuse the SDK's public client and existing App token provider.
+Review publication stays in the extension executor with a local approval
+predicate. Revisit these exceptions when upstream supplies the missing
+capabilities. Automatic thread resolution is excluded because its thread-only
+input cannot select this App's repository installation.
 
-[Meta's RADAR paper](https://arxiv.org/pdf/2605.30208), especially Sections 2.6–2.8,
-motivates separating semantic review from policy and readiness checks. A review
-that finds no defects can still require human judgment because the change is
-irreversible, broad, or materially uncertain. A mixed PR qualifies only when
-every material change has been assessed and qualifies.
+The bot once opened and merged its own PR #23 despite instructions forbidding
+self-merges. Branch and PR creation are now excluded, and the merge gate checks
+commit authorship independently. `requireApproval: false` avoids parking
+unattended webhook turns; deterministic predicates deny disallowed reviews and
+merges without asking a person. Capability exclusions and GitHub permissions
+limit authority even if the model misjudges repository content.
 
-The implementation uses the installed extension's approval predicates and
-executor for reviews and direct merges. The extension has no auto-merge tools;
-`enable-auto-merge` and `disable-auto-merge` use the SDK's public `createOctokit`
-client for those missing operations. Queue activation pins the expected head,
-requires the bot's published approval, and requires branch protection that
-dismisses stale approvals. GitHub governs the queued merge after activation;
-a new head needs fresh approval but does not require a fresh bot assessment.
-The custom assessment tool fills
-the missing capability for structured local review judgment. Policy version and
-turn binding prevent earlier assessments from authorizing later work. Aggregate
-risk scoring, source-history calibration, volume controls, and outcome tracking
-remain future work requiring operational evidence.
+File fixes use `createOrUpdateFile`, one commit per call, and are checked by CI
+after committing. The file SHA guards content, but the tool does not bind the
+branch to the reviewed head. Refresh-before-write remains an instruction-level
+race mitigation. Bot-authored commits always need human review and merge.
 
-## Shipshape ownership
+## Conversation and publication
 
-[Shipshape](https://github.com/aranlucas/shipshape-mcp)'s practice catalog owns
-portfolio adoption and shared prevention. Its companion `review-standards` seed
-checks for a root `coding-standards.md` in explicitly selected repositories.
-Presence is an adoption signal, not proof of review or test quality. The practice
-instructions guide a coding agent to preserve repository-specific standards,
-verify meaningful behavior, report merge danger, and propose separate prevention
-changes from confirmed review feedback.
+A final assistant reply appeared on
+[Shipshape PR #111 after it merged](https://github.com/aranlucas/shipshape-mcp/pull/111#issuecomment-6236400129).
+Eve's default `message.completed` delivery caused it. The channel suppresses
+that automatic delivery for PR conversations while retaining issue replies;
+explicit tool writes still need their own freshness controls.
 
-PR Bot owns the per-PR reasoning and merge decision. Shipshape does not execute
-repository code or merge changes. A PR Bot prevention suggestion can become a
-reviewed catalog change with the source PR, reviewed SHA, triggering case, and
-intended check. Cross-PR recurrence requires history evidence; current practice
-results alone do not establish it.
+Native threads and one updated timeline summary keep review history in GitHub.
+A model repeated a successful summary-create call, so its tool result now points
+to the existing comment ID. This discourages repeats but cannot enforce exactly
+one summary across concurrent events or ambiguous write outcomes.
 
-Shipshape's seed is separate from its live catalog. Adopting it follows the
-catalog's normal review process; changing this repository does not publish it.
+Short, evidence-linked findings and explicit reconsider/verify paths were
+informed by observational studies:
+[Cynthia et al.](https://arxiv.org/abs/2607.21997v2) found code suggestions strongly
+associated with resolution; [Lin et al.](https://arxiv.org/abs/2607.03316v2) found
+invalid, redundant, out-of-scope, and intent-misaligned feedback often rejected.
+These findings motivate interaction design, not a claimed success rate for PR Bot.
+
+## Portfolio boundary
+
+[Shipshape](https://github.com/aranlucas/shipshape-mcp) owns portfolio adoption
+and shared prevention; PR Bot owns one PR's review and merge decision. A root
+`coding-standards.md` is an adoption signal, not proof of review quality. A
+confirmed process gap can motivate a separate reviewed standards/catalog change
+with its triggering case and intended check. Changing this repository does not
+publish Shipshape's catalog, and current adoption results do not prove recurrence.
