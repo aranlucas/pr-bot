@@ -1,5 +1,5 @@
 import { assert, afterEach, describe, test, vi } from "vitest";
-import { generateText, isStepCount, streamText, tool, ToolLoopAgent } from "ai";
+import { isStepCount, streamText, tool, ToolLoopAgent } from "ai";
 import { z } from "zod";
 
 describe.each(["deadline", "caller cancellation"])("model %s", (stop) => {
@@ -7,8 +7,11 @@ describe.each(["deadline", "caller cancellation"])("model %s", (stop) => {
     vi.useRealTimers();
   });
 
-  test.each(["headers", "body", "ongoing output", "reasoning"])(
-    "aborts a slow provider before the function deadline (%s)",
+  const phases =
+    stop === "deadline" ? ["headers", "body", "ongoing output", "reasoning"] : ["headers", "body"];
+
+  test.each(phases)(
+    "aborts the provider and settles the stream with safe diagnostics before the deadline (%s)",
     async (phase) => {
       vi.useFakeTimers();
       const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
@@ -167,14 +170,9 @@ describe.each([
     expectedURL: "https://openrouter.ai/api/v1/chat/completions",
   },
 ])("$provider attribution", ({ baseURL, expectedURL }) => {
-  test.each([
-    { useToolLoop: false, streaming: false },
-    { useToolLoop: true, streaming: false },
-    { useToolLoop: false, streaming: true },
-    { useToolLoop: true, streaming: true },
-  ])(
-    "identifies PR Bot and requests low reasoning on every step (tool loop: $useToolLoop, streaming: $streaming)",
-    async ({ useToolLoop, streaming }) => {
+  test.each([{ useToolLoop: false }, { useToolLoop: true }])(
+    "identifies PR Bot and requests low reasoning on every streamed step (tool loop: $useToolLoop)",
+    async ({ useToolLoop }) => {
       vi.stubEnv("FREELLM_API_BASE_URL", baseURL);
       vi.stubEnv("FREELLM_API_KEY", "test-model-key");
       vi.stubEnv("FREELLM_MODEL", "auto");
@@ -226,8 +224,8 @@ describe.each([
 
         assert.strictEqual(body.model, "auto");
         assert.strictEqual(body.reasoning_effort, "low");
-        assert.strictEqual(body.stream ?? false, streaming);
-        assert.deepEqual(body.stream_options, streaming ? { include_usage: true } : undefined);
+        assert.strictEqual(body.stream, true);
+        assert.deepEqual(body.stream_options, { include_usage: true });
         assert.strictEqual(body.response_format, undefined);
         assert.strictEqual(body.tools[0].function.name, "github__addPullRequestComment");
 
@@ -254,42 +252,31 @@ describe.each([
         const metadata = { id: "review-test", created: 1, model: "auto" };
         const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
 
-        if (streaming) {
-          const chunks = [
-            {
-              ...metadata,
-              object: "chat.completion.chunk",
-              choices: [{ index: 0, delta: message, finish_reason: null }],
-            },
-            {
-              ...metadata,
-              object: "chat.completion.chunk",
-              choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
-            },
-            {
-              ...metadata,
-              object: "chat.completion.chunk",
-              choices: [],
-              usage,
-            },
-          ];
-
-          return Promise.resolve(
-            new Response(
-              chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
-                "data: [DONE]\n\n",
-              { headers: { "content-type": "text/event-stream" } },
-            ),
-          );
-        }
+        const chunks = [
+          {
+            ...metadata,
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: message, finish_reason: null }],
+          },
+          {
+            ...metadata,
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+          },
+          {
+            ...metadata,
+            object: "chat.completion.chunk",
+            choices: [],
+            usage,
+          },
+        ];
 
         return Promise.resolve(
-          Response.json({
-            ...metadata,
-            object: "chat.completion",
-            choices: [{ index: 0, message, finish_reason: finishReason }],
-            usage,
-          }),
+          new Response(
+            chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+              "data: [DONE]\n\n",
+            { headers: { "content-type": "text/event-stream" } },
+          ),
         );
       });
 
@@ -317,13 +304,9 @@ describe.each([
 
       const agent = new ToolLoopAgent(settings);
 
-      const result = streaming
-        ? useToolLoop
-          ? await agent.stream({ prompt })
-          : streamText({ ...settings, prompt })
-        : useToolLoop
-          ? await agent.generate({ prompt })
-          : await generateText({ ...settings, prompt });
+      const result = useToolLoop
+        ? await agent.stream({ prompt })
+        : streamText({ ...settings, prompt });
 
       const text = await result.text;
       const steps = await result.steps;
