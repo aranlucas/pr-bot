@@ -79,3 +79,8 @@ It confirmed preserved signed-target parsing/comparison, durable state identity
 and shape, policy version, freshness checks, review-versus-merge eligibility,
 and the value of foreign-assessment regression cases. Static whitespace check
 passed. No local tests or builds ran; CI results remain the merge gate.
+
+First PR CI: behavioral tests and type checking passed. Lint rejected the
+new nullable eligibility expression (prefer optional chaining). Replaced it
+with `recorded?.status !== "eligible"`; missing assessments remain denied.
+No local test reproduction was run.

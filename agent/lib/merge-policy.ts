@@ -76,7 +76,7 @@ export async function approveMerge(
 
   const recorded = currentMergeAssessment(ctx);
 
-  if (!recorded || recorded.status !== "eligible") {
+  if (recorded?.status !== "eligible") {
     return denied("record an eligible assessment in this turn before merging.");
   }
 
