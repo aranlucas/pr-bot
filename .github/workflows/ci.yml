@@ -91,7 +91,7 @@ jobs:
           require-lockfile: true
       - name: Prove the installation regression rejects the defective baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: 007ed0ae22ae396b1d72940fcdfb0f29de6d2804
         run: |
           git show "$BASE_SHA:agent/lib/github.ts" > agent/lib/github.ts
           set +e
@@ -103,7 +103,7 @@ jobs:
           grep -q "expected 'token-99' to equal 'token-100'" regression.log
       - name: Prove the repository write gates reject the defective baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: 007ed0ae22ae396b1d72940fcdfb0f29de6d2804
         run: |
           git restore agent/lib/github.ts
           git show "$BASE_SHA:agent/extensions/github.ts" > agent/extensions/github.ts
@@ -113,7 +113,7 @@ jobs:
           set -e
           cat boundary-regression.log
           test "$result" -eq 1
-          grep -q 'expected undefined to be truthy' boundary-regression.log
+          grep -q "expected 'not-applicable' to deep include { type: 'denied' }" boundary-regression.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:

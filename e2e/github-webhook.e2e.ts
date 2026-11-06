@@ -41,6 +41,16 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
     base: { sha: "base" },
   };
 
+  const files = [
+    {
+      filename: "app.ts",
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      patch: "@@ -1 +1 @@\n-old\n+fixed",
+    },
+  ];
+
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input: RequestInfo | URL) => {
     const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
@@ -75,17 +85,9 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
           ),
         );
       case "/repos/Acme/App/pulls/7/files":
-        return Promise.resolve(
-          Response.json([
-            {
-              filename: "app.ts",
-              status: "modified",
-              additions: 1,
-              deletions: 1,
-              patch: "@@ -1 +1 @@\n-old\n+fixed",
-            },
-          ]),
-        );
+        return Promise.resolve(Response.json(files));
+      case "/repos/Acme/App/compare/base...head":
+        return Promise.resolve(Response.json({ files }));
       default:
         throw new Error(`Unexpected GitHub fixture request: ${path}`);
     }
@@ -96,6 +98,7 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
       create: unexpected,
       send: (_message, options) => {
         deliveries.push({ address, options });
+
         const session: Session = {
           id: "fixture-session",
           send: unexpected,

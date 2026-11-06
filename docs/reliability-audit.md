@@ -76,3 +76,14 @@ Add native approval overrides to all enabled writes; compare their repository to
 the signed invocation repository. Cross-repository reads remain available.
 Comment IDs and file branches still require model judgment within that repository;
 this change does not claim to bind every write to a particular PR or branch.
+
+## Validation evidence
+
+Independent review confirmed both runtime fixes and challenged the protocol/test
+harness. CI run `42305447819` passed Vitest, type checking and the compile job.
+Its F1 baseline reproduction passed; F2 correctly failed the new denial assertions
+against the old permissive policy, but the evidence step expected the wrong error
+text. The corrected proof pins baseline `007ed0a`, so later PR base changes do not
+silently replace the defective version. Protocol CI exposed a missing compare-files
+fixture; it is corrected without weakening the diff-delivery assertion. Latest
+head still requires CI validation before merge. No local tests/builds were run.
