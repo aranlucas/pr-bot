@@ -55,3 +55,91 @@ jobs:
           require-lockfile: true
       - run: pnpm lint
       - run: pnpm format:check
+  protocol:
+    if: ${{ github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: protocol-evidence
+          path: .e2e/
+          retention-days: 7
+  regression-proof:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - name: Prove the installation regression rejects the defective baseline
+        env:
+          BASE_SHA: 007ed0ae22ae396b1d72940fcdfb0f29de6d2804
+        run: |
+          git show "$BASE_SHA:agent/lib/github.ts" > agent/lib/github.ts
+          set +e
+          pnpm exec vitest run test/github-identity.test.ts -t 'repository token selection follows' > regression.log 2>&1
+          result=$?
+          set -e
+          cat regression.log
+          test "$result" -eq 1
+          grep -q "expected 'token-99' to equal 'token-100'" regression.log
+      - name: Prove the repository write gates reject the defective baseline
+        env:
+          BASE_SHA: 007ed0ae22ae396b1d72940fcdfb0f29de6d2804
+        run: |
+          git restore agent/lib/github.ts
+          git show "$BASE_SHA:agent/extensions/github.ts" > agent/extensions/github.ts
+          set +e
+          pnpm exec vitest run test/repository-write-policy.test.ts > boundary-regression.log 2>&1
+          result=$?
+          set -e
+          cat boundary-regression.log
+          test "$result" -eq 1
+          grep -q "expected 'not-applicable' to deep include { type: 'denied' }" boundary-regression.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: defective-baseline-evidence
+          path: |
+            regression.log
+            boundary-regression.log
+  build:
+    if: ${{ github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - name: Compile with disposable credentials and no sandbox provisioning
+        env:
+          GITHUB_APP_ID: "123"
+          GITHUB_WEBHOOK_SECRET: fixture-secret
+          FREELLM_API_KEY: fixture-model-key
+          SANDBOX_ENABLED: "false"
+        run: |
+          export GITHUB_APP_PRIVATE_KEY="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
+          pnpm build --skip-sandbox-prewarm

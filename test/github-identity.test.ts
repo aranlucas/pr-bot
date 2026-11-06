@@ -43,3 +43,33 @@ test.each([
   assert.strictEqual(await githubBotLogin(), "patchling-pr[bot]");
   assert.lengthOf(fetch.mock.calls, 2);
 });
+
+test("repository token selection follows a changed App installation in a warm process", async () => {
+  const { githubToken } = await import("../agent/lib/github.js");
+  let installationId = 99;
+  const tokenRequests: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+
+    if (url.pathname === "/repos/Acme/App/installation") {
+      return Promise.resolve(Response.json({ id: installationId }));
+    }
+
+    tokenRequests.push(url.pathname);
+
+    return Promise.resolve(
+      Response.json({
+        token: `token-${installationId}`,
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+      }),
+    );
+  });
+  const call = { toolName: "getIssue", owner: "Acme", repo: "App" };
+  assert.strictEqual(await githubToken(call), "token-99");
+  installationId = 100;
+  assert.strictEqual(await githubToken(call), "token-100");
+  assert.deepEqual(tokenRequests, [
+    "/app/installations/99/access_tokens",
+    "/app/installations/100/access_tokens",
+  ]);
+});

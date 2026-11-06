@@ -20,3 +20,6 @@ coverage/
 # Local logs and OS metadata
 *.log
 .DS_Store
+
+# Protocol test reports
+.e2e/
