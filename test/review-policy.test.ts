@@ -123,6 +123,7 @@ test.each([
   null,
   { ...recorded, turnId: "previous-turn" },
   { ...recorded, target: { ...target, pullNumber: 43 } },
+  { ...recorded, target: { ...target, repo: "other" } },
   { ...recorded, policyVersion: 0 },
 ])("missing or stale assessments cannot publish", async (assessment) => {
   vi.spyOn(mergeAssessment, "get").mockReturnValue(assessment);

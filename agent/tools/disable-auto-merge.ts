@@ -2,7 +2,7 @@ import { createOctokit } from "@github-tools/sdk";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { githubToken } from "@/github";
-import { currentPullRequest } from "@/merge-assessment";
+import { currentPullRequest } from "@/github-context";
 
 export default defineTool({
   description:

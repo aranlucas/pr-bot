@@ -2,7 +2,8 @@ import { createOctokit } from "@github-tools/sdk";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { githubBotLogin, githubToken } from "@/github";
-import { currentPullRequest, mergeAssessment } from "@/merge-assessment";
+import { currentPullRequest } from "@/github-context";
+import { mergeAssessment } from "@/merge-assessment";
 import { approveMerge } from "@/merge-policy";
 
 const autoMergeState = z.object({

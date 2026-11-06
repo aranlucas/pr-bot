@@ -48,7 +48,10 @@ the target PR's standards from its base branch.
 The [GitHub channel](agent/channels/github.ts) handles ingress,
 [extension configuration](agent/extensions/github.ts) selects capabilities, and
 [merge](agent/lib/merge-policy.ts) and [review](agent/lib/review-policy.ts)
-policies enforce write gates. Shared helpers live in `agent/lib/`, imported as
+policies enforce write gates. Signed webhook targets and review controls live in
+[GitHub context](agent/lib/github-context.ts); durable review judgment and its
+current-turn validity live in [merge assessment](agent/lib/merge-assessment.ts).
+Shared helpers live in `agent/lib/`, imported as
 `@/<module>`. See [review design](docs/review-design.md) for rationale,
 [the roadmap](ROADMAP.md) for proposed product work, and
 [reliability work](docs/reliability-research.md) for unresolved validation.

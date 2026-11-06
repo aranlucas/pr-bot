@@ -26,7 +26,6 @@ export async function githubBotLogin(): Promise<string> {
   const { token } = await auth({ type: "app" });
   const { data } = await createOctokit(token).rest.apps.getAuthenticated();
   const { slug } = appIdentity.parse(data);
-  // Cache only success so a later event can retry a failed identity lookup.
   botLogin = `${slug.toLowerCase()}[bot]`;
 
   return botLogin;

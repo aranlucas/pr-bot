@@ -1,9 +1,6 @@
 import { defineState, type SessionContext } from "eve/context";
 import { z } from "zod";
-
-export const botName = "aranlucas-pr-bot";
-
-export const pausedLabel = "pr-bot:paused";
+import { currentPullRequest, samePullRequest, type PullRequestTarget } from "@/github-context";
 
 export const mergePolicyVersion = 2;
 
@@ -19,45 +16,6 @@ export const assessmentInput = z.object({
 });
 
 type Assessment = z.infer<typeof assessmentInput>;
-
-interface PullRequestTarget {
-  owner: string;
-  repo: string;
-  pullNumber: number;
-}
-
-const invocation = z.object({
-  authenticator: z.literal("github-webhook"),
-  attributes: z.object({
-    conversation_kind: z.enum(["pull_request", "review_thread"]),
-    repository: z.string().regex(/^[^/]+\/[^/]+$/),
-    pull_request_number: z
-      .string()
-      .regex(/^\d+$/)
-      .transform(Number)
-      .pipe(z.number().int().positive()),
-  }),
-});
-
-export function currentPullRequest(ctx: SessionContext): PullRequestTarget | undefined {
-  const parsed = invocation.safeParse(ctx.session.auth.current);
-
-  if (!parsed.success) {
-    return;
-  }
-
-  const [owner, repo] = parsed.data.attributes.repository.split("/");
-
-  return { owner, repo, pullNumber: parsed.data.attributes.pull_request_number };
-}
-
-export function samePullRequest(a: PullRequestTarget, b: PullRequestTarget): boolean {
-  return (
-    a.owner.toLowerCase() === b.owner.toLowerCase() &&
-    a.repo.toLowerCase() === b.repo.toLowerCase() &&
-    a.pullNumber === b.pullNumber
-  );
-}
 
 function decision(assessment: Assessment) {
   const reasons: string[] = [];
@@ -109,6 +67,27 @@ export const mergeAssessment = defineState<RecordedAssessment | null>(
   "pr-bot.merge-assessment",
   () => null,
 );
+
+export function currentMergeAssessment(ctx: SessionContext) {
+  const target = currentPullRequest(ctx);
+
+  if (!target) {
+    return;
+  }
+
+  const recorded = mergeAssessment.get();
+
+  if (
+    !recorded ||
+    recorded.policyVersion !== mergePolicyVersion ||
+    recorded.turnId !== ctx.session.turn.id ||
+    !samePullRequest(recorded.target, target)
+  ) {
+    return;
+  }
+
+  return recorded;
+}
 
 export function recordMergeAssessment(input: Assessment, ctx: SessionContext) {
   const target = currentPullRequest(ctx);
