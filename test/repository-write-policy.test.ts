@@ -1,6 +1,6 @@
 import { assert, test } from "vitest";
 import type { ApprovalContext } from "eve/tools/approval";
-import githubExtension from "@github-tools/eve-extension";
+import { github } from "@github-tools/eve-extension/tools";
 import githubMount from "../agent/extensions/github.js";
 
 const writes = [
@@ -16,8 +16,9 @@ const writes = [
   "requestReviewers",
 ] as const;
 
-const mounted = githubMount as ReturnType<typeof githubExtension>;
-const tools = mounted.tools;
+function unexpected(): never {
+  throw new Error("Unexpected fixture operation");
+}
 
 for (const tool of writes) {
   test.each([
@@ -28,22 +29,52 @@ for (const tool of writes) {
   ])(
     `${tool} confines writes to the signed repository: %j`,
     async ({ signed, owner, repo, allowed }) => {
-      const policy = tools[tool].approval;
-      assert.isFunction(policy);
-      if (typeof policy !== "function") throw new Error("Missing repository write gate");
-      const ctx = {
+      assert.ok(githubMount);
+
+      const ctx: ApprovalContext = {
         session: {
+          id: "session",
+          turn: { id: "turn", sequence: 1 },
           auth: {
+            initiator: null,
             current: signed
-              ? { authenticator: "github-webhook", attributes: { repository: signed } }
+              ? {
+                  authenticator: "github-webhook",
+                  principalId: "github:10",
+                  principalType: "user",
+                  attributes: { repository: signed },
+                }
               : null,
           },
         },
         toolInput: { owner, repo },
-      } as ApprovalContext;
+        approvedTools: new Set<string>(),
+        getSandbox: unexpected,
+        abortSignal: new AbortController().signal,
+        callId: "call",
+        toolName: `github__${tool}`,
+      };
+
+      const resolve = github.events["step.started"];
+      assert.ok(resolve);
+
+      const tools = await resolve(undefined, {
+        model: null,
+        session: ctx.session,
+        channel: { kind: "github" },
+        messages: [],
+      });
+
+      const approval = tools[tool].approval;
+      assert.ok(approval);
+      const policy = "request" in approval ? approval.request : approval;
       const result = await policy(ctx);
-      if (allowed) assert.strictEqual(result, "not-applicable");
-      else assert.deepInclude(result, { type: "denied" });
+
+      if (allowed) {
+        assert.strictEqual(result, "not-applicable");
+      } else {
+        assert.deepInclude(result, { type: "denied" });
+      }
     },
   );
 }

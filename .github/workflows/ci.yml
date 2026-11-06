@@ -101,11 +101,26 @@ jobs:
           cat regression.log
           test "$result" -eq 1
           grep -q "expected 'token-99' to equal 'token-100'" regression.log
+      - name: Prove the repository write gates reject the defective baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git restore agent/lib/github.ts
+          git show "$BASE_SHA:agent/extensions/github.ts" > agent/extensions/github.ts
+          set +e
+          pnpm exec vitest run test/repository-write-policy.test.ts > boundary-regression.log 2>&1
+          result=$?
+          set -e
+          cat boundary-regression.log
+          test "$result" -eq 1
+          grep -q 'expected undefined to be truthy' boundary-regression.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
           name: defective-baseline-evidence
-          path: regression.log
+          path: |
+            regression.log
+            boundary-regression.log
   build:
     if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest

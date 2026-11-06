@@ -50,10 +50,13 @@ test("repository token selection follows a changed App installation in a warm pr
   const tokenRequests: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
+
     if (url.pathname === "/repos/Acme/App/installation") {
       return Promise.resolve(Response.json({ id: installationId }));
     }
+
     tokenRequests.push(url.pathname);
+
     return Promise.resolve(
       Response.json({
         token: `token-${installationId}`,

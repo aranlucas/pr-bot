@@ -1,15 +1,25 @@
 import { createHmac, generateKeyPairSync } from "node:crypto";
-import { mock } from "node:test";
 import { test, expect } from "e2e";
 import type { ChannelSendOptions, RouteHandlerArgs, Session } from "eve/channels";
 import type { GitHubChannelState } from "eve/channels/github";
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+
 process.env.GITHUB_APP_ID = "123";
+
 process.env.GITHUB_APP_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" });
+
 process.env.GITHUB_WEBHOOK_SECRET = "fixture-secret";
+
 process.env.FREELLM_API_KEY = "fixture-model-key";
+
 process.env.SANDBOX_ENABLED = "false";
+
+interface Delivery {
+  address: string;
+  options: ChannelSendOptions<GitHubChannelState>;
+}
+
 const channel = (await import("../agent/channels/github.js")).default;
 
 function unexpected(): never {
@@ -17,9 +27,10 @@ function unexpected(): never {
 }
 
 test("signed PR webhook delivers the reviewed head and suppresses already published reviews", async () => {
-  const deliveries: { address: string; options: ChannelSendOptions<GitHubChannelState> }[] = [];
+  const deliveries: Delivery[] = [];
   const pending: Promise<unknown>[] = [];
   let reviewed = false;
+
   const pr = {
     number: 7,
     state: "open",
@@ -29,8 +40,11 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
     head: { sha: "head" },
     base: { sha: "base" },
   };
-  const fetchMock = mock.method(globalThis, "fetch", (input: RequestInfo | URL) => {
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (input: RequestInfo | URL) => {
     const path = new URL(input instanceof Request ? input.url : input.toString()).pathname;
+
     switch (path) {
       case "/app":
         return Promise.resolve(Response.json({ slug: "fixture-pr" }));
@@ -75,13 +89,26 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
       default:
         throw new Error(`Unexpected GitHub fixture request: ${path}`);
     }
-  });
+  };
+
   const args: RouteHandlerArgs<GitHubChannelState> = {
     from: (address) => ({
       create: unexpected,
       send: (_message, options) => {
         deliveries.push({ address, options });
-        return Promise.resolve({ id: "fixture-session" } as Session);
+        const session: Session = {
+          id: "fixture-session",
+          send: unexpected,
+          respond: unexpected,
+          cancel: unexpected,
+          compact: unexpected,
+          clear: unexpected,
+          reset: unexpected,
+          getEventStream: unexpected,
+          getStreamTailIndex: unexpected,
+        };
+
+        return Promise.resolve(session);
       },
       respond: unexpected,
       cancel: unexpected,
@@ -102,8 +129,10 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
     readSkill: unexpected,
     invokeTool: unexpected,
   };
+
   const route =
     channel.routes.find((candidate) => candidate.transport !== "websocket") ?? unexpected();
+
   const body = JSON.stringify({
     action: "synchronize",
     pull_request: pr,
@@ -111,6 +140,7 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
     installation: { id: 99 },
     sender: { id: 10, login: "author", type: "User" },
   });
+
   async function dispatch(secret: string) {
     const response = await route.handler(
       new Request("https://fixture.test/eve/v1/github", {
@@ -125,9 +155,12 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
       }),
       args,
     );
+
     await Promise.all(pending.splice(0));
+
     return response;
   }
+
   try {
     expect((await dispatch("forged")).status).toBe(401);
     expect(deliveries).toHaveLength(0);
@@ -140,6 +173,6 @@ test("signed PR webhook delivers the reviewed head and suppresses already publis
     expect((await dispatch("fixture-secret")).status).toBe(200);
     expect(deliveries).toHaveLength(1);
   } finally {
-    fetchMock.mock.restore();
+    globalThis.fetch = originalFetch;
   }
 });
