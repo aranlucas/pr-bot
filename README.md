@@ -259,3 +259,13 @@ For deadline failures, missing deployments, or replay recovery, follow the
 [reliability notes](docs/reliability-research.md). Verify the serving release:
 active work stays on its deployment; a later delivery can hand an idle session
 to a new one.
+
+The CI `protocol` job uses `e2e@0.23.0`'s supported engine-less runner for
+signed-webhook routing and completed-review suppression with fixture HTTP
+responses. It needs no browser, model key or production credentials. Run it
+with `pnpm test:e2e` when local validation is permitted. The CI `build` job
+compiles with disposable credentials and skips sandbox prewarming; it does not
+validate deployment or production sandbox provisioning. Extension writes are
+restricted to the signed webhook's repository; cross-repository reads remain
+available. Repository installation discovery is refreshed for token selection,
+while Octokit retains responsibility for caching installation tokens.

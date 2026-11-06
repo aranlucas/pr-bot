@@ -10,8 +10,6 @@ const auth = createAppAuth({
 
 const installationResponse = z.object({ id: z.number() });
 
-const installations = new Map<string, number>();
-
 const appIdentity = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/iu) });
 
 let botLogin: string | undefined;
@@ -38,13 +36,6 @@ interface RepositoryCall extends Pick<GithubTokenCall, "owner" | "repo"> {
 // The repository's installation, not the webhook's, so a call to any repo the
 // App is installed on gets a token for that repo.
 async function installationFor(owner: string, repo: string): Promise<number> {
-  const key = `${owner}/${repo}`.toLowerCase();
-  const cached = installations.get(key);
-
-  if (cached !== undefined) {
-    return cached;
-  }
-
   const { token } = await auth({ type: "app" });
 
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/installation`, {
@@ -56,7 +47,6 @@ async function installationFor(owner: string, repo: string): Promise<number> {
   }
 
   const { id } = installationResponse.parse(await response.json());
-  installations.set(key, id);
 
   return id;
 }

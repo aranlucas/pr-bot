@@ -209,6 +209,7 @@ test("the mounted extension publishes reviews, replies, and pause controls throu
 
   assert.ok(calls.includes("POST /repos/acme/app/issues/42/comments"));
   assert.ok(!calls.includes("PUT /repos/acme/app/pulls/42/merge"));
-  // All calls target acme/app, so the installation is looked up once.
-  assert.strictEqual(calls.filter((call) => call === "GET /repos/acme/app/installation").length, 1);
+  // Repository discovery remains scoped to the requested repository.
+  assert.ok(calls.includes("GET /repos/acme/app/installation"));
+  assert.ok(!calls.some((call) => call.includes("/repos/") && !call.includes("/repos/acme/app/")));
 }, 15_000);

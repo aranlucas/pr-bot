@@ -2,6 +2,7 @@ import githubExtension from "@github-tools/eve-extension";
 import { formatGithubEveToolOutput } from "@github-tools/sdk/eve-runtime";
 import { z } from "zod";
 import { githubToken } from "@/github";
+import { approveRepositoryWrite } from "@/repository-write-policy";
 import { approveReview } from "@/review-policy";
 
 const postedComment = z.object({ id: z.number(), url: z.string() });
@@ -27,12 +28,23 @@ export default githubExtension({
   ],
   requireApproval: false,
   overrides: {
+    createOrUpdateFile: { approval: approveRepositoryWrite },
+    addLabels: { approval: approveRepositoryWrite },
+    removeLabel: { approval: approveRepositoryWrite },
+    createLabel: { approval: approveRepositoryWrite },
+    updatePullRequest: { approval: approveRepositoryWrite },
+    updatePullRequestComment: { approval: approveRepositoryWrite },
+    deletePullRequestComment: { approval: approveRepositoryWrite },
+    replyToReviewComment: { approval: approveRepositoryWrite },
+    requestReviewers: { approval: approveRepositoryWrite },
+
     createPullRequestReview: {
       approval: approveReview,
     },
     // A model repeated a successful call and posted the same summary twice, so
     // the result points every later summary change at the posted comment.
     addPullRequestComment: {
+      approval: approveRepositoryWrite,
       description:
         "Create the bot's single timeline summary on a pull request. Call it at most once per PR; when a bot summary already exists, use updatePullRequestComment instead.",
       toModelOutput(output) {
