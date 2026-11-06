@@ -3,12 +3,8 @@ import type { ApprovalContext, ApprovalStatus } from "eve/tools/approval";
 import { z } from "zod";
 import { githubToken } from "@/github";
 import { approveMerge } from "@/merge-policy";
-import {
-  currentPullRequest,
-  mergeAssessment,
-  mergePolicyVersion,
-  samePullRequest,
-} from "@/merge-assessment";
+import { currentPullRequest, samePullRequest } from "@/github-context";
+import { currentMergeAssessment } from "@/merge-assessment";
 
 const reviewTarget = z.object({
   owner: z.string(),
@@ -32,14 +28,9 @@ export async function approveReview(ctx: ApprovalContext): Promise<ApprovalStatu
     return { type: "denied", reason: "Review blocked: target the current signed webhook's PR." };
   }
 
-  const recorded = mergeAssessment.get();
+  const recorded = currentMergeAssessment(ctx);
 
-  if (
-    !recorded ||
-    recorded.policyVersion !== mergePolicyVersion ||
-    recorded.turnId !== ctx.session.turn.id ||
-    !samePullRequest(recorded.target, target)
-  ) {
+  if (!recorded) {
     return {
       type: "denied",
       reason: "Review blocked: record an assessment in this turn before publishing.",

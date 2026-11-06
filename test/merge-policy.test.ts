@@ -521,6 +521,8 @@ test.each([
   "previous turn",
   "previous policy",
   "different PR",
+  "assessment for different PR",
+  "assessment for different repository",
   "different repository",
   "different strategy",
   "unsigned",
@@ -539,6 +541,16 @@ test.each([
 
   if (condition === "absent") {
     stored = null;
+  }
+
+  if (condition === "assessment for different PR") {
+    assert.ok(stored);
+    stored.target = { ...target, pullNumber: 43 };
+  }
+
+  if (condition === "assessment for different repository") {
+    assert.ok(stored);
+    stored.target = { ...target, repo: "other" };
   }
 
   let overrides: Partial<ApprovalContext> = {};

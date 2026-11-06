@@ -37,8 +37,6 @@ const failure = z.object({
 
 type Failure = z.infer<typeof failure>;
 
-// Callers pass the JSON-safe metadata they already emit to runtime logs. The
-// schema above parses it and enforces the runtime source marker.
 export type FailureMetadata = Omit<z.input<typeof failure>, "source"> & { source: string };
 
 const errorEvents = new Set(["session.failed", "turn.failed"]);

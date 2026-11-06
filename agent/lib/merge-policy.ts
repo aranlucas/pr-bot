@@ -2,13 +2,8 @@ import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
 import type { ApprovalContext } from "eve/tools/approval";
 import { z } from "zod";
 import { githubBotLogin, githubToken } from "@/github";
-import {
-  currentPullRequest,
-  mergeAssessment,
-  mergePolicyVersion,
-  pausedLabel,
-  samePullRequest,
-} from "@/merge-assessment";
+import { currentPullRequest, pausedLabel, samePullRequest } from "@/github-context";
+import { currentMergeAssessment } from "@/merge-assessment";
 
 const mergeInput = z.object({
   owner: z.string(),
@@ -79,21 +74,14 @@ export async function approveMerge(
     return denied("only a squash merge of the current signed webhook's PR is allowed.");
   }
 
-  const recorded = mergeAssessment.get();
+  const recorded = currentMergeAssessment(ctx);
 
-  if (
-    !recorded ||
-    recorded.policyVersion !== mergePolicyVersion ||
-    recorded.turnId !== ctx.session.turn.id ||
-    !samePullRequest(recorded.target, target) ||
-    recorded.status !== "eligible"
-  ) {
+  if (recorded?.status !== "eligible") {
     return denied("record an eligible assessment in this turn before merging.");
   }
 
   try {
     ctx.abortSignal.throwIfAborted();
-    // Use the extension's executor for reads as well; no parallel GitHub client.
     const options = { token: githubToken };
 
     const [fresh, labels] = await Promise.all([

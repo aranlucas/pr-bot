@@ -5,7 +5,7 @@ import { createOctokit } from "@github-tools/sdk";
 import { executeGithubEveTool } from "@github-tools/sdk/eve-runtime";
 import { env } from "@/env";
 import { githubBotLogin, githubToken } from "@/github";
-import { botName, pausedLabel } from "@/merge-assessment";
+import { botName, pausedLabel } from "@/github-context";
 
 const automaticReview = z.object({
   state: z.literal("open"),
