@@ -2,7 +2,11 @@ import githubExtension from "@github-tools/eve-extension";
 import { formatGithubEveToolOutput } from "@github-tools/sdk/eve-runtime";
 import { z } from "zod";
 import { githubToken } from "@/github";
-import { approveRepositoryWrite } from "@/repository-write-policy";
+import {
+  approveFileWrite,
+  approvePullRequestWrite,
+  approveRepositoryWrite,
+} from "@/repository-write-policy";
 import { approveReview } from "@/review-policy";
 
 const postedComment = z.object({ id: z.number(), url: z.string() });
@@ -28,15 +32,15 @@ export default githubExtension({
   ],
   requireApproval: false,
   overrides: {
-    createOrUpdateFile: { approval: approveRepositoryWrite },
-    addLabels: { approval: approveRepositoryWrite },
-    removeLabel: { approval: approveRepositoryWrite },
+    createOrUpdateFile: { approval: approveFileWrite },
+    addLabels: { approval: approvePullRequestWrite },
+    removeLabel: { approval: approvePullRequestWrite },
     createLabel: { approval: approveRepositoryWrite },
-    updatePullRequest: { approval: approveRepositoryWrite },
+    updatePullRequest: { approval: approvePullRequestWrite },
     updatePullRequestComment: { approval: approveRepositoryWrite },
     deletePullRequestComment: { approval: approveRepositoryWrite },
-    replyToReviewComment: { approval: approveRepositoryWrite },
-    requestReviewers: { approval: approveRepositoryWrite },
+    replyToReviewComment: { approval: approvePullRequestWrite },
+    requestReviewers: { approval: approvePullRequestWrite },
 
     createPullRequestReview: {
       approval: approveReview,
@@ -44,7 +48,7 @@ export default githubExtension({
     // A model repeated a successful call and posted the same summary twice, so
     // the result points every later summary change at the posted comment.
     addPullRequestComment: {
-      approval: approveRepositoryWrite,
+      approval: approvePullRequestWrite,
       description:
         "Create the bot's single timeline summary on a pull request. Call it at most once per PR; when a bot summary already exists, use updatePullRequestComment instead.",
       toModelOutput(output) {

@@ -51,9 +51,11 @@ merges without asking a person. Capability exclusions and GitHub permissions
 limit authority even if the model misjudges repository content.
 
 File fixes use `createOrUpdateFile`, one commit per call, and are checked by CI
-after committing. The file SHA guards content, but the tool does not bind the
-branch to the reviewed head. Refresh-before-write remains an instruction-level
-race mitigation. Bot-authored commits always need human review and merge.
+after committing. The tool commits to the default branch when `branch` is
+omitted, so its approval gate requires the current PR's head branch, read fresh
+from GitHub, and denies fork heads. The file SHA guards content, but nothing
+binds the commit to the reviewed head SHA. Refresh-before-write remains an
+instruction-level race mitigation. Bot-authored commits always need human review and merge.
 
 ## Conversation and publication
 
