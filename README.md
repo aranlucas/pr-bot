@@ -267,5 +267,7 @@ with `pnpm test:e2e` when local validation is permitted. The CI `build` job
 compiles with disposable credentials and skips sandbox prewarming; it does not
 validate deployment or production sandbox provisioning. Extension writes are
 restricted to the signed webhook's repository; cross-repository reads remain
-available. Repository installation discovery is refreshed for token selection,
+available. Label, PR, summary, reply, and reviewer writes must also name the
+signed PR, and file fixes may only commit to its head branch when that branch
+is in the same repository, never to the default branch or a fork. Repository installation discovery is refreshed for token selection,
 while Octokit retains responsibility for caching installation tokens.
