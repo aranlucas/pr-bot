@@ -1,7 +1,6 @@
 import { assert, describe, test, vi } from "vitest";
 import type { ApprovalContext, ApprovalStatus } from "eve/tools/approval";
 import { github } from "@github-tools/eve-extension/tools";
-import { z } from "zod";
 import githubMount from "../agent/extensions/github.js";
 
 const repositoryWrites = [
@@ -50,12 +49,11 @@ function unexpected(): never {
   throw new Error("Unexpected fixture operation");
 }
 
-// Collapses an approval result to the decision the gate made.
 async function approve(
   tool: Write,
   signed: Signed | null,
   toolInput: WriteInput,
-): Promise<"allowed" | "denied" | "other"> {
+): Promise<ApprovalStatus> {
   assert.ok(githubMount);
 
   const ctx: ApprovalContext = {
@@ -102,13 +100,7 @@ async function approve(
   assert.ok(approval);
   const policy = "request" in approval ? approval.request : approval;
 
-  const result: ApprovalStatus = await policy(ctx);
-
-  if (result === "not-applicable") {
-    return "allowed";
-  }
-
-  return z.object({ type: z.literal("denied") }).safeParse(result).success ? "denied" : "other";
+  return policy(ctx);
 }
 
 for (const tool of repositoryWrites) {
@@ -122,7 +114,11 @@ for (const tool of repositoryWrites) {
     async ({ signed, owner, repo, allowed }) => {
       const result = await approve(tool, signed, { owner, repo, commentId: 1 });
 
-      assert.strictEqual(result, allowed ? "allowed" : "denied");
+      if (allowed) {
+        assert.strictEqual(result, "not-applicable");
+      } else {
+        assert.deepInclude(result, { type: "denied" });
+      }
     },
   );
 }
@@ -179,7 +175,11 @@ for (const tool of pullNumberWrites) {
       pullNumber: entry.number,
     });
 
-    assert.strictEqual(result, entry.allowed ? "allowed" : "denied");
+    if (entry.allowed) {
+      assert.strictEqual(result, "not-applicable");
+    } else {
+      assert.deepInclude(result, { type: "denied" });
+    }
   });
 }
 
@@ -191,7 +191,11 @@ for (const tool of issueNumberWrites) {
       issueNumber: entry.number,
     });
 
-    assert.strictEqual(result, entry.allowed ? "allowed" : "denied");
+    if (entry.allowed) {
+      assert.strictEqual(result, "not-applicable");
+    } else {
+      assert.deepInclude(result, { type: "denied" });
+    }
   });
 }
 
@@ -258,7 +262,7 @@ describe("createOrUpdateFile", () => {
 
     assert.strictEqual(
       await approve("createOrUpdateFile", signedPr, { ...fix, branch: "feature" }),
-      "allowed",
+      "not-applicable",
     );
     assert.include(calls, "GET /repos/Acme/App/pulls/7");
   });
@@ -269,25 +273,26 @@ describe("createOrUpdateFile", () => {
   ])("denies $name without reading GitHub", async ({ branch }) => {
     const calls = stubGitHub();
 
-    assert.strictEqual(await approve("createOrUpdateFile", signedPr, { ...fix, branch }), "denied");
+    assert.deepInclude(await approve("createOrUpdateFile", signedPr, { ...fix, branch }), {
+      type: "denied",
+    });
     assert.deepEqual(calls, []);
   });
 
   test("denies the base branch", async () => {
     stubGitHub();
 
-    assert.strictEqual(
-      await approve("createOrUpdateFile", signedPr, { ...fix, branch: "main" }),
-      "denied",
-    );
+    assert.deepInclude(await approve("createOrUpdateFile", signedPr, { ...fix, branch: "main" }), {
+      type: "denied",
+    });
   });
 
   test("denies another branch in the signed repository", async () => {
     stubGitHub();
 
-    assert.strictEqual(
+    assert.deepInclude(
       await approve("createOrUpdateFile", signedPr, { ...fix, branch: "release" }),
-      "denied",
+      { type: "denied" },
     );
   });
 
@@ -297,36 +302,36 @@ describe("createOrUpdateFile", () => {
       head: { ref: "feature", repo: { full_name: "fork/app" } },
     });
 
-    assert.strictEqual(
+    assert.deepInclude(
       await approve("createOrUpdateFile", signedPr, { ...fix, branch: "feature" }),
-      "denied",
+      { type: "denied" },
     );
   });
 
   test("denies a head whose repository was deleted", async () => {
     stubGitHub({ ...sameRepositoryHead, head: { ref: "feature", repo: null } });
 
-    assert.strictEqual(
+    assert.deepInclude(
       await approve("createOrUpdateFile", signedPr, { ...fix, branch: "feature" }),
-      "denied",
+      { type: "denied" },
     );
   });
 
   test("denies a closed PR", async () => {
     stubGitHub({ ...sameRepositoryHead, state: "closed" });
 
-    assert.strictEqual(
+    assert.deepInclude(
       await approve("createOrUpdateFile", signedPr, { ...fix, branch: "feature" }),
-      "denied",
+      { type: "denied" },
     );
   });
 
   test("denies when the PR cannot be read", async () => {
     stubGitHub(null);
 
-    assert.strictEqual(
+    assert.deepInclude(
       await approve("createOrUpdateFile", signedPr, { ...fix, branch: "feature" }),
-      "denied",
+      { type: "denied" },
     );
   });
 
@@ -337,9 +342,9 @@ describe("createOrUpdateFile", () => {
   ])("denies $name without reading GitHub", async ({ signed, input = fix }) => {
     const calls = stubGitHub();
 
-    assert.strictEqual(
+    assert.deepInclude(
       await approve("createOrUpdateFile", signed, { ...input, branch: "feature" }),
-      "denied",
+      { type: "denied" },
     );
     assert.deepEqual(calls, []);
   });
